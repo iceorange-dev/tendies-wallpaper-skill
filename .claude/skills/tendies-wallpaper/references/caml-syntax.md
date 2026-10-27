@@ -220,9 +220,8 @@ Selector 的星雨：
 ```
 
 - 圖層是**用名稱比對**的，所以名稱必須唯一。
-- 已實機驗證的狀態 keyPath：`opacity`、`position.x`、`position.y`、`transform.scale.xy`。
+- 已實機驗證的狀態 keyPath：`opacity`、`position.x`、`position.y`、`transform.scale.xy`、`transform.rotation.z`（千夏的手、FX 的漩渦）。
 - 參考作品（LayeredAnimation）還用過以下 keyPath，在 ParameterizedCA 中 ⚠️ 未驗證：
-  - `transform.rotation.z`
   - `bounds.size.width`／`bounds.size.height`
   - `zPosition`
   - `backgroundColor`
