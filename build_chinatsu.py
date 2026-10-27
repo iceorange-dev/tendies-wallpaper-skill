@@ -102,15 +102,6 @@ def glow_alpha(im, rgb=None, gain=1.0, gamma=1.0):
     return rgba(np.clip(col, 0, 255), alpha)
 
 
-def chained(name, states, depth, child):
-    """`depth` nested groups carrying the same opacity states: values multiply, so fades run as u**depth
-    or (1-u)**depth across the swipe (techniques E4)."""
-    node = child
-    for i in range(depth):
-        node = group(f"{name} Fade {i + 1}", opacity=states[0]).state("opacity", *states).add(node)
-    return node
-
-
 def vgrad(w, h, stops):
     t = np.linspace(0, 1, h, dtype=np.float32)
     col = np.stack([np.interp(t, [s for s, _ in stops], [c[i] for _, c in stops]) for i in range(3)], 1)

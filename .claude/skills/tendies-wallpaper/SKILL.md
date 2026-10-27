@@ -52,13 +52,14 @@ description: 製作與修改 iOS AirCard / Nugget「.tendies」動態鎖定畫�
 - **安全區是 x 139–751、y 132–758**，重要內容都放在裡面。
 - 使用者的時鐘是實測值，存在 `tendies_kit.CLOCK`，時鐘底部約在：闔上 root y≈434、展開直向 y≈561、展開橫向 y≈479。時鐘可以被拉長。
 - 鎖定時角色的頭頂約在 `CHAR_TOP ≈ 556`，放在 FLOATING，讓景深把時鐘蓋住。
-- **AOD（Sleep）沒有景深**，時鐘永遠在最上層，所以 Sleep 的主體必須整個放在時鐘下方（頂端 ≤ 約 410–415）。
+- **AOD（Sleep）沒有景深**，時鐘永遠在最上層，所以 Sleep 的主體必須整個放在時鐘下方（頂端 ≤ 約 410–415；`clock_floor()` 會算出各姿態都能用的上下界）。
 
 **圖層與狀態**
 - 圖層名稱必須全域唯一（`build_caml` 會 assert），因為 property／parallax group 是用名字找圖層。
 - **同一圖層、同一 keyPath 上，動畫會蓋掉狀態值。** 狀態（`.state`）和動畫（`.animate`）要分開放在巢狀的不同圖層。慣例是外層 Stage 負責狀態，往內依序是 Parallax、Float、Sway 等動畫層。
 - kit 每個圖層只輸出一個動畫，需要多軸運動就巢狀多層。參考作品用 `<p key="animation-1">` 在同一圖層掛多個動畫（見 caml-syntax.md），我們尚未驗證。
 - 狀態值依解鎖進度**線性內插**，沒有彈簧，也沒有 easing。
+- 從主畫面進 AOD 會先經過 Lock 的數值。只在 Lock 出現的東西，走這條路時會冒出來一下（techniques.md §A 開頭）。
 
 **品質**
 - 圖片圖層 ≥ 3 px/pt（@3x），用 premultiplied Lanczos（`resize_premul`）縮放，PNG 無損。

@@ -52,6 +52,13 @@ CLOCK = {
 STATES = ("lock", "home", "sleep")
 
 
+def clock_floor():
+    """(the lowest clock bottom, the highest screen bottom) over all views, in root y: the band that AOD content
+    must keep to in every posture (the AOD has no depth, so the clock covers anything above its bottom)."""
+    low = min(y1 - CLOCK[v][3] * (y1 - y0) for v, ((x0, y0, x1, y1), _) in VIEWS.items())
+    return low, max(y0 for (x0, y0, x1, y1), _ in VIEWS.values())
+
+
 # ----------------------------------------------------------------------------
 # image helpers
 # ----------------------------------------------------------------------------
@@ -167,6 +174,15 @@ def image_layer(name, key, h=None, w=None, x=C, y=C, **kw):
 
 def group(name, kind="CALayer", w=S, h=S, x=C, y=C, **kw):
     return Layer(name, w, h, x, y, kind=kind, **kw)
+
+
+def chained(name, states, depth, child):
+    """`depth` nested groups carrying the same opacity states: values multiply, so fades run as u**depth
+    or (1-u)**depth across the swipe (techniques E4)."""
+    node = child
+    for i in range(depth):
+        node = group(f"{name} Fade {i + 1}", opacity=states[0]).state("opacity", *states).add(node)
+    return node
 
 
 
