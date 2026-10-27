@@ -1,0 +1,18 @@
+# third-party wallpapers, game assets and generated output are never committed
+/references/
+/sources/
+/build/
+/build_*/
+/preview/
+/preview_*/
+*.tendies
+*.webp
+*.pdn
+download curl.txt
+
+__pycache__/
+*.pyc
+.DS_Store
+
+# local Claude Code settings
+.claude/settings.local.json
