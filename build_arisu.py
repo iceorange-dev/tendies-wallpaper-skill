@@ -33,12 +33,15 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from tendies_kit import *  # noqa: F401,F403  (scene graph, CAML, packaging, previews, device model)
+import tendies_art as art
+from tendies_art import *  # noqa: F401,F403  (shared generators: glows, beams, motes, fades)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "sources", "arisu")
 OUT_NAME = "Suzushima-Arisu-Fold"
-BUILD = os.path.join(HERE, "build_arisu")
-PREVIEW = os.path.join(HERE, "preview_arisu")
+OUT = os.path.join(HERE, "out")                  # every generated file: .tendies, build/, preview/
+BUILD = os.path.join(OUT, "build", "arisu")
+PREVIEW = os.path.join(OUT, "preview", "arisu")
 
 CHAR_TOP = 556.0   # Lock: head just under the user's folded clock; the depth effect lets it overlap
 AOD_TOP = 410.0    # Sleep: AOD has no depth, the clock bottom is at root y ~434 when folded
@@ -52,7 +55,6 @@ ICE = (160, 226, 255)
 LAVENDER = (190, 168, 255)
 PINK = (255, 186, 226)
 GOLD = (236, 196, 112)
-WARM = (255, 238, 205)
 INK = (44, 36, 74)       # cardboard outline
 
 rng = random.Random(20180906)   # Arisu's birthday
@@ -61,81 +63,13 @@ rng = random.Random(20180906)   # Arisu's birthday
 # ----------------------------------------------------------------------------
 # source art
 # ----------------------------------------------------------------------------
-def clean_alpha(im, floor=8):
-    """Real-ESRGAN leaves faint alpha noise in transparent areas."""
-    a = np.asarray(im.convert("RGBA")).copy()
-    a[..., 3] = np.where(a[..., 3] < floor, 0, a[..., 3])
-    return Image.fromarray(a, "RGBA")
-
-
-def smooth(u):
-    u = np.clip(u, 0, 1)
-    return u * u * (3 - 2 * u)
-
-
-def edge_fade(im, left=0.0, right=0.0, top=0.0, bottom=0.0):
-    """Dissolve edges where the card illustration was cropped (fractions of width / height)."""
-    a = np.asarray(im).astype(np.float32)
-    h, w = a.shape[:2]
-    m = np.ones((h, w), np.float32)
-    if left:
-        n = int(w * left)
-        m[:, :n] *= smooth(np.linspace(0, 1, n))[None, :]
-    if right:
-        n = int(w * right)
-        m[:, w - n:] *= smooth(np.linspace(1, 0, n))[None, :]
-    if top:
-        n = int(h * top)
-        m[:n, :] *= smooth(np.linspace(0, 1, n))[:, None]
-    if bottom:
-        n = int(h * bottom)
-        m[h - n:, :] *= smooth(np.linspace(1, 0, n))[:, None]
-    a[..., 3] *= m
-    return Image.fromarray(a.clip(0, 255).astype(np.uint8), "RGBA")
-
-
-def radial_fade(im, cx, cy, r0, r1):
-    """Soft spotlight: keep everything within r0 of (cx, cy), fade out by r1 (all in image widths)."""
-    a = np.asarray(im).astype(np.float32)
-    h, w = a.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    d = np.hypot(xx / w - cx, (yy - cy * h) / w)
-    a[..., 3] *= 1 - smooth((d - r0) / (r1 - r0))
-    return Image.fromarray(a.clip(0, 255).astype(np.uint8), "RGBA")
-
-
-def source(name, fade=None, spot=None, height_pt=None, width_pt=None):
-    im, _ = trim(clean_alpha(load(os.path.join(SRC, name))), thr=8, pad=6)
-    if fade:
-        im = edge_fade(im, **fade)
-    if spot:
-        im = radial_fade(im, *spot)
-    if height_pt:
-        width_pt = height_pt * im.width / im.height
-    height_pt = width_pt * im.height / im.width
-    return resize_premul(im, (width_pt * PPT, height_pt * PPT)), width_pt, height_pt
+def source(name, **kw):
+    return load_source(os.path.join(SRC, name), **kw)
 
 
 # ----------------------------------------------------------------------------
 # generated art (smooth surfaces at >= 1.5 px/pt, fine detail drawn at 4x and reduced to @3x)
 # ----------------------------------------------------------------------------
-def grid(n):
-    yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
-    return xx / n, yy / n
-
-
-def rgba(rgb, alpha):
-    rgb = np.broadcast_to(np.asarray(rgb, np.float32), alpha.shape + (3,))
-    return Image.fromarray(np.dstack([rgb, alpha * 255]).clip(0, 255).astype(np.uint8), "RGBA")
-
-
-def ramp3(lum, dark, mid, high):
-    """Map 0..1 luminance onto a dark -> mid -> high colour ramp."""
-    l = np.clip(lum, 0, 1)[..., None]
-    dark, mid, high = (np.array(c, np.float32) for c in (dark, mid, high))
-    return np.where(l < 0.5, dark + (mid - dark) * (l / 0.5), mid + (high - mid) * ((l - 0.5) / 0.5))
-
-
 VELVET = ((7, 10, 36), (30, 44, 124), (112, 140, 236))
 
 
@@ -247,45 +181,6 @@ def backdrop(w, h, seed):
     return img
 
 
-def beam(w, h, spread=0.92):
-    """Spotlight cone, narrow at the top; additive-looking warm light."""
-    x = np.linspace(-1, 1, w, dtype=np.float32)[None, :]
-    y = np.linspace(0, 1, h, dtype=np.float32)[:, None]
-    half = 0.07 + spread * y
-    a = np.exp(-2.4 * (x / half) ** 2) * (0.25 + 0.75 * (1 - y) ** 0.5) * smooth(y * 12)
-    a += np.random.default_rng(5).uniform(-0.006, 0.006, a.shape)
-    return rgba(WARM, np.clip(a * 0.55, 0, 1))
-
-
-def pool(w, h):
-    x = np.linspace(-1, 1, w, dtype=np.float32)[None, :]
-    y = np.linspace(-1, 1, h, dtype=np.float32)[:, None]
-    a = np.exp(-2.2 * (x ** 2 + y ** 2)) * 0.6
-    return rgba(WARM, a + np.random.default_rng(6).uniform(-0.005, 0.005, a.shape))
-
-
-def soft_glow(n, rgb, amount):
-    xx, yy = grid(n)
-    return rgba(rgb, np.exp(-((xx - 0.5) ** 2 + (yy - 0.5) ** 2) / 0.06) * amount)
-
-
-def vignette(size=1024, strength=190):
-    xx, yy = grid(size)
-    r = np.hypot(xx - 0.5, yy - 0.5) * 2
-    va = np.clip((r - 0.5) / 0.6, 0, 1) ** 1.5 * strength
-    va += np.random.default_rng(3).uniform(-1.5, 1.5, va.shape)
-    return rgba((4, 4, 18), np.clip(va, 0, 255) / 255)
-
-
-def star_points(cx, cy, r_out, r_in, n=5, rot=-90):
-    pts = []
-    for i in range(n * 2):
-        rr = r_out if i % 2 == 0 else r_in
-        a = math.radians(rot + i * 180 / n)
-        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
-    return pts
-
-
 def jelly_star(px, rgb):
     """Translucent aqua 'bit' like the stars of her Shooter Dress, with rim light and glow."""
     N = px * 4
@@ -307,22 +202,6 @@ def jelly_star(px, rgb):
     return resize_premul(Image.alpha_composite(rgba(rgb, glow), rgba(col, alpha)), (px, px))
 
 
-def sparkle(px):
-    N = px * 4
-    xx, yy = grid(N)
-    dx, dy = np.abs(xx - 0.5) * 2, np.abs(yy - 0.5) * 2
-    arm = np.maximum(np.exp(-(dx / 0.05) ** 2) * np.clip(1 - dy, 0, 1) ** 2.2,
-                     np.exp(-(dy / 0.05) ** 2) * np.clip(1 - dx, 0, 1) ** 2.2)
-    core = np.exp(-(np.hypot(dx, dy) / 0.2) ** 2)
-    return resize_premul(rgba((255, 246, 220), np.clip(arm + core * 0.85, 0, 1)), (px, px))
-
-
-def mote(px):
-    xx, yy = grid(px * 4)
-    a = np.exp(-((xx - 0.5) ** 2 + (yy - 0.5) ** 2) / 0.03)
-    return resize_premul(rgba(WARM, a), (px, px))
-
-
 def paw(px):
     N = px * 4
     m = Image.new("L", (N, N), 0)
@@ -332,16 +211,6 @@ def paw(px):
         d.ellipse(((cx - 0.10) * N, (cy - 0.125) * N, (cx + 0.10) * N, (cy + 0.125) * N), fill=255)
     m = m.filter(ImageFilter.GaussianBlur(2.5))
     return resize_premul(rgba((228, 220, 250), np.asarray(m, np.float32) / 255), (px, px))
-
-
-def confetti(px_w, px_h, rgb):
-    N = 4
-    w, h = px_w * N, px_h * N
-    yy = np.linspace(-1, 1, h, dtype=np.float32)[:, None]
-    curl = 0.75 + 0.25 * np.cos(yy * 2.2)                        # a slight paper curl
-    col = np.array(rgb, np.float32) * np.broadcast_to(curl, (h, w))[..., None]
-    a = np.ones((h, w), np.float32)
-    return resize_premul(rgba(col, a), (px_w, px_h))
 
 
 def glyph_z(px):
@@ -448,32 +317,12 @@ def playbill(jacket, w_pt, h_pt):
 # ----------------------------------------------------------------------------
 # reusable motion pieces
 # ----------------------------------------------------------------------------
-def floating_bit(name, key, size, x, y, alpha_lo=0.6, drift=(8, 24)):
-    """Drift (position) -> spin (rotation) -> twinkle (opacity), one animation per layer."""
-    r0 = rng.uniform(-25, 25)
-    img = Layer(name, size, size, size / 2, size / 2, img=key)
-    img.animate("opacity", [alpha_lo, 1.0], rng.uniform(1.8, 3.4), offset=rng.uniform(0, 3))
-    spin = Layer(f"{name} Spin", size, size, x, y, rot=math.radians(r0)).add(img)
-    d = rng.uniform(14, 30) * rng.choice([-1, 1])
-    spin.animate("transform.rotation.z", [math.radians(r0), math.radians(r0 + d)], rng.uniform(4.5, 8),
-                 offset=rng.uniform(0, 4))
-    mover = group(f"{name} Drift").add(spin)
-    a1, a2 = rng.uniform(0, 2 * math.pi), rng.uniform(0, 2 * math.pi)
-    m1, m2 = rng.uniform(drift[0], drift[1] * 0.75), rng.uniform(drift[0] * 1.5, drift[1])
-    mover.animate("position", [(C, C), (C + m1 * math.cos(a1), C + m1 * math.sin(a1)),
-                               (C + m2 * math.cos(a2), C + m2 * math.sin(a2))],
-                  rng.uniform(5.5, 9.5), offset=rng.uniform(0, 6))
-    return mover
+def floating_bit(*args, **kw):
+    return art.floating_bit(rng, *args, **kw)
 
 
-def hanging(name, key, w_pt, x, top):
-    """A prop on a thread, swinging like a pendulum from the top of its thread."""
-    iw, ih = ASSETS[key].size
-    h_pt = w_pt * ih / iw
-    p = Layer(name, w_pt, h_pt, x, top, img=key, anchor=(0.5, 1.0))
-    amp = math.radians(rng.uniform(3, 6))
-    p.animate("transform.rotation.z", [-amp, amp], rng.uniform(2.8, 4.4), offset=rng.uniform(0, 4))
-    return p
+def hanging(*args, **kw):
+    return art.hanging(rng, *args, **kw)
 
 
 # ----------------------------------------------------------------------------
@@ -783,7 +632,7 @@ def build_root():
 def main():
     root = build_root()
     caml = build_caml(root)
-    out, ident, desc_uuid, ca_name = package(caml, os.path.join(HERE, f"{OUT_NAME}.tendies"), BUILD)
+    out, ident, desc_uuid, ca_name = package(caml, os.path.join(OUT, f"{OUT_NAME}.tendies"), BUILD)
 
     mem = sum(im.width * im.height * 4 for im in ASSETS.values()) / 2 ** 20
     print(f"layers: {sum(1 for _ in walk(root))}, assets: {len(ASSETS)}, decoded ~{mem:.0f} MB")

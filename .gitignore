@@ -1,10 +1,8 @@
-# third-party wallpapers, game assets and generated output are never committed
+# third-party wallpapers, game assets, generated output (out/) and local tools (tools/) are never committed
 /references/
 /sources/
-/build/
-/build_*/
-/preview/
-/preview_*/
+/out/
+/tools/
 *.tendies
 *.webp
 *.pdn
@@ -16,3 +14,6 @@ __pycache__/
 
 # local Claude Code settings
 .claude/settings.local.json
+
+# personal ports of other creators' wallpapers (not distributed)
+/ports/

@@ -37,8 +37,9 @@ BG_DIR = os.path.join(ASSET_ROOT, "assets_manosaba_WitchTrials", "Textures", "Na
 SPRITES = os.path.join(ASSET_ROOT, "角色")
 
 OUT_NAME = "Manosaba-Duo-Fold"
-BUILD = os.path.join(HERE, "build")
-PREVIEW = os.path.join(HERE, "preview")
+OUT = os.path.join(HERE, "out")                  # every generated file: .tendies, build/, preview/
+BUILD = os.path.join(OUT, "build", "manosaba")
+PREVIEW = os.path.join(OUT, "preview", "manosaba")
 
 OFF = 520.0        # slide distance of the character leaving / entering the stage
 # The Lock Screen clock fills the top ~37% in every posture (folded: y > ~565 in root pt;
@@ -304,7 +305,7 @@ def build_root():
 def main():
     root = build_root()
     caml = build_caml(root)
-    out, ident, desc_uuid, ca_name = package(caml, os.path.join(HERE, f"{OUT_NAME}.tendies"), BUILD)
+    out, ident, desc_uuid, ca_name = package(caml, os.path.join(OUT, f"{OUT_NAME}.tendies"), BUILD)
 
     mem = sum(im.width * im.height * 4 for im in ASSETS.values()) / 2 ** 20
     print(f"layers: {sum(1 for _ in walk(root))}, assets: {len(ASSETS)}, decoded ~{mem:.0f} MB")

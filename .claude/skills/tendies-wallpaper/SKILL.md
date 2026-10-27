@@ -71,7 +71,14 @@ description: 製作與修改 iOS AirCard / Nugget「.tendies」動態鎖定畫�
 - **轉場要是場景裡的事件，不要只是淡入淡出。** 不要閃白轉場，使用者覺得「不和諧」。
 - **入場要符合物理。** 角色從幕後出來，就讓她在幕後被布景遮住，再被拉開的布景露出來，不要淡入疊在布景上面。
 - **角色背後的布景不要有像她身體或服裝一部分的形狀與顏色。** 有栖背後的波浪色帶曾被誤認成尾巴。
+- **角色要夠大，不必露出全身。** 全身立繪被說「人有點太小了，不一定要全身露出來」。鎖定畫面用半身構圖，頭頂壓在時鐘下緣前，做法見 techniques.md §F3。
 - **參考作品只學技巧，不抄構圖。** 「不需要因為我給你參考你就強配自己去照抄他的設計」。
+- **畫面主體一律用官方美術，不用程式畫具體物件，也不用 AI 生成素材。** 日向千夏第一版被整個退回：
+  - 程式畫的向日葵、帳篷被說「像是小孩畫作」。
+  - 換成 ChatGPT 素材後，又被說「有點噁心」「很ai」，最後明確要求「不要用ai生成素材」。
+  - 成功的那兩張（Manosaba、有栖）都是官方立繪、官方背景，再加程式做的光、布幕這類抽象元素。
+  - 程式只負責光影、模糊、色調、粒子、布料／舞台這類抽象元素。
+  - 也不要用大量重複的小 sprite 鋪成一片（花田）。官方原畫要找遊戲資料：章節背景、劇情立繪、卡面、場景貼圖，做法見 techniques.md §G1。
 
 ---
 
@@ -88,7 +95,8 @@ description: 製作與修改 iOS AirCard / Nugget「.tendies」動態鎖定畫�
 4. **寫建置腳本** `build_<name>.py`，骨架如下：
    ```python
    from tendies_kit import *   # Layer, group, image_layer, asset, S, C, PPT, VIEWS, CLOCK, package, make_previews...
-   OUT_NAME, BUILD, PREVIEW = "Name-Fold", os.path.join(HERE, "build_x"), os.path.join(HERE, "preview_x")
+   OUT = os.path.join(HERE, "out")       # 所有產出都放 out/（不進 repo）
+   OUT_NAME, BUILD, PREVIEW = "Name-Fold", os.path.join(OUT, "build", "x"), os.path.join(OUT, "preview", "x")
    rng = random.Random(<角色生日之類的固定種子>)     # 固定種子，重建結果穩定
 
    def build_background():            # 時鐘下方
@@ -99,7 +107,7 @@ description: 製作與修改 iOS AirCard / Nugget「.tendies」動態鎖定畫�
        return Layer("Root Layer", S, S, C, C).add(build_background(), build_floating())
    def main():
        root = build_root(); caml = build_caml(root)
-       package(caml, os.path.join(HERE, f"{OUT_NAME}.tendies"), BUILD)
+       package(caml, os.path.join(OUT, f"{OUT_NAME}.tendies"), BUILD)
        make_previews(root, PREVIEW, {"lock": "...", "home": "...", "sleep": "..."})
    ```
    新增元素時，要保持既有的 `rng` 消耗順序，不然會把整個場景的隨機佈局洗掉。有栖的 `build_root` 就是為此，先建好再把圖層插進背景。
@@ -130,10 +138,12 @@ description: 製作與修改 iOS AirCard / Nugget「.tendies」動態鎖定畫�
 | 類別 | 技巧 |
 |---|---|
 | A 狀態劇本 | 卡面切入互換 ✅、布幕揭幕 ✅、AOD 午睡 ✅、背景依狀態平移 ✅、依狀態染色 ✅、主畫面乾淨化 🔶、Q 版平鋪圖樣當主畫面 🔶、AOD 只留 logo／標語 🔶、標題滑出 🔶、角色往兩側讓開 🔶、深淺色模式狀態 ⚠️ |
-| B 角色生命感 | 漂浮與呼吸 ✅、腳底錨點搖擺 ✅、眨眼／單眼眨眼差分 🔶、嘴型時間軸 🔶、姿勢切換 🔶、部件綁骨 🔶、上半身錨點晃動 🔶 |
+| A 狀態劇本（續） | 換一張立繪當主畫面（招呼 → 飛撲）＋背景失焦對焦 ⚠️、同場景日夜版當 AOD ⚠️ |
+| B 角色生命感 | 漂浮與呼吸 ✅、腳底錨點搖擺 ✅、眨眼／單眼眨眼差分 🔶（官方劇情立繪自帶閉眼臉 ⚠️）、嘴型時間軸 🔶、姿勢切換 🔶、部件綁骨 🔶（從手腕切出揮手 ⚠️）、上半身錨點晃動 🔶 |
 | C 環境動態 | 吊線道具鐘擺 ✅、紙花下落 ✅、果凍星漂浮 ✅、Zzz 上升 ✅、光塵粒子 ✅、羽毛 Z 字路徑 🔶、邊緣矩形發射器 🔶、疊層翻頁動畫 🔶、`contents` 逐幀 🔶、窗燈閃爍 🔶 |
 | D 光影 | 聚光燈與光束擺動 ✅、腳下光圈 ✅、輪廓光／氛圍光（alpha_glow）✅、暗角 ✅、睡眠調暗 ✅、混合模式（lighten／overlay／multiply／saturation）🔶、高斯模糊陰影 🔶、閃電腳本 🔶 |
 | E 景深陀螺儀 | 前後景分層與 parallax 量 ✅、布景遮擋揭露 ✅、巢狀透明度平方淡出 ✅、從腳底縮放彈出 ✅ |
 | F 版面 | 正方形 root 適配多姿態 ✅（參考作品的 iPad 版也用正方形畫布 🔶）、時鐘避讓 ✅ |
-| G 素材 | 遊戲資料裁切 ✅、ESRGAN 放大 ✅、trim／clean_alpha／邊緣與圓形淡出 ✅、程序生成布景 ✅ |
+| G 素材 | 遊戲資料裁切 ✅、ESRGAN 放大 ✅、trim／clean_alpha／邊緣與圓形淡出 ✅、程序生成布景（僅限抽象元素）✅、`ongeki.py` 讀官方素材（劇情立繪組臉、章節背景分層）⚠️、模板比對還原分層位置 ⚠️ |
 | H 效能／變體 | 記憶體預算、效能版（降 PPT）🔶、無 AOD 版 🔶、無動畫版 🔶 |
+| P 移植別人的桌布 | 優先移植 iPad 正方形版並等比縮放 ⚠️、手機版忠實座標對應 ⚠️、招牌元素與銜接要保留 ⚠️、文字裁切檢查（`text_check`）⚠️ |

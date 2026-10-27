@@ -22,11 +22,16 @@
   references/caml-syntax.md         tendies 封包與 CAML 語法速查
   references/reference-catalog.md   參考作品分析摘要（參考檔本身不在本 repo）
   scripts/ref_*.py                  參考 .tendies 的唯讀分析與靜態渲染工具
-tendies_kit.py                      引擎：場景圖 → CAML → 打包，含預覽渲染器
+tendies_kit.py                      引擎：場景圖 → CAML → 打包，含預覽渲染器與轉場／亮度檢查
+tendies_art.py                      共用的程序美術與素材處理（光暈、光束、淡出、切 sprite）
+ongeki.py                           從 ONGEKI 解包資料讀卡面、劇情立繪（含表情臉）、章節背景
 template/                           打包用的 PosterKit metadata 範本
 build_tendies.py                    範例一：Manosaba（Hiro／Ema 切入、法庭、光塵）
 build_arisu.py                      範例二：ONGEKI 珠洲島有栖「小劇場」（布幕揭幕、吊線道具、AOD 午睡）
+build_chinatsu.py                   範例三：ONGEKI 日向千夏「學園中庭」（官方立繪眨眼、揮手、背景對焦、夜晚 AOD）
 ```
+
+建置時產生的檔案都放在 `out/`（`<name>.tendies`、`out/preview/<name>/`、`out/build/<name>/`），不進 repo。本機工具（Real-ESRGAN 等）放在 `tools/`，同樣不進 repo。
 
 ## 使用方式
 
@@ -34,8 +39,8 @@ build_arisu.py                      範例二：ONGEKI 珠洲島有栖「小劇�
 
 預覽用到兩個 Windows 字型（`bahnschrift.ttf`、`msjh.ttc`），在其他系統上請修改 `tendies_kit.py` 開頭的 `CLOCK_FONT`／`LABEL_FONT`。
 
-1. 照 `SKILL.md` 的骨架寫一支 `build_<name>.py`，或從兩支範例改起。
-2. 執行 `python build_<name>.py`，會產生 `<name>.tendies` 和預覽資料夾。
+1. 照 `SKILL.md` 的骨架寫一支 `build_<name>.py`，或從三支範例改起。
+2. 執行 `python build_<name>.py`，會產生 `out/<name>.tendies` 和預覽資料夾 `out/preview/<name>/`（加 `--no-preview` 可跳過預覽）。
 3. 打開預覽資料夾，檢查以下檔案和終端機印出的亮度比：
    - `states_x_postures.png`
    - `transition_lock_home.png`
@@ -52,9 +57,9 @@ build_arisu.py                      範例二：ONGEKI 珠洲島有栖「小劇�
 
 ## 範例素材
 
-兩支範例會讀取**你自己合法取得**的遊戲素材：
+範例會讀取**你自己合法取得**的遊戲素材：
 - `build_tendies.py`：遊戲解包資料夾，路徑用環境變數 `MANOSABA_ASSETS` 指定。
-- `build_arisu.py`：`sources/arisu/` 底下放卡面原圖，或用 Real-ESRGAN 放大後的圖。
+- `build_arisu.py`、`build_chinatsu.py`：`sources/<角色>/` 底下放卡面原圖，或用 Real-ESRGAN 放大後的圖；`ongeki.py` 的解包路徑用環境變數 `ONGEKI_EXPORT` 指定。
 
 本 repo **不包含**任何遊戲圖片、建好的 `.tendies`，或其他創作者的桌布。各遊戲與角色的著作權屬於其權利人；技巧手冊只記錄從參考作品學到的做法，不含它們的內容。
 

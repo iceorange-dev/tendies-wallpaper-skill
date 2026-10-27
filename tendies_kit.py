@@ -372,13 +372,16 @@ def render(root, t, state_vals, k, only=None, opaque=True, tilt=(0.0, 0.0)):
 
     def draw(l, M, op):
         vals = state_vals.get(l.name, {})
-        x, y, o, rot = vals.get("position.x", l.x), vals.get("position.y", l.y), vals.get("opacity", l.opacity), l.rot
+        x, y, o = vals.get("position.x", l.x), vals.get("position.y", l.y), vals.get("opacity", l.opacity)
+        rot = vals.get("transform.rotation.z", l.rot)
         sc = vals.get("transform.scale.xy", l.scale)
         if l.anim:
             v = anim_value(l.anim, t)
             kp = l.anim["keyPath"]
             if kp == "position":
                 x, y = v
+            elif kp == "position.x":
+                x = v
             elif kp == "position.y":
                 y = v
             elif kp == "opacity":
@@ -636,6 +639,7 @@ def check_uids(value, count):
 
 def package(caml, out_path, build_dir):
     """Write the .tendies, plus an inspectable copy of main.caml and the assets in build_dir."""
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     if os.path.isdir(build_dir):
         shutil.rmtree(build_dir)
     pngs = {}
