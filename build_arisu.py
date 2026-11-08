@@ -631,7 +631,7 @@ def build_root():
 
 def main():
     root = build_root()
-    caml = build_caml(root)
+    caml = build_caml(root, allow_loops=True)  # still loops: not yet moved into transitions (techniques H)
     out, ident, desc_uuid, ca_name = package(caml, os.path.join(OUT, f"{OUT_NAME}.tendies"), BUILD)
 
     mem = sum(im.width * im.height * 4 for im in ASSETS.values()) / 2 ** 20

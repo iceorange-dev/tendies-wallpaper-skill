@@ -131,11 +131,14 @@ class Layer:
     _ids = {}
 
     def __init__(self, name, w, h, x, y, kind="CALayer", img=None, color=None, opacity=1.0,
-                 rot=0.0, scale=1.0, anchor=(0.5, 0.5), trilinear=False):
+                 rot=0.0, scale=1.0, anchor=(0.5, 0.5), trilinear=False, z=0.0, sublayer=None):
         self.name, self.w, self.h, self.x, self.y = name, float(w), float(h), float(x), float(y)
         self.kind, self.img, self.color, self.opacity = kind, img, color, opacity
         self.rot, self.scale, self.anchor, self.trilinear = rot, scale, anchor, trilinear
+        # zPosition, and a CAML transform string for sublayerTransform such as "perspective(1250)"
+        self.z, self.sublayer = float(z), sublayer
         self.children, self.anim, self.states, self.parallax, self.emitter = [], None, {}, None, None
+        self.lstates = {}       # landscape overrides of `states` (Duo per-screen schema only)
         base = "".join(ch.lower() if ch.isalnum() else "-" for ch in name).strip("-")
         Layer._ids[base] = Layer._ids.get(base, 0) + 1
         self.id = base if Layer._ids[base] == 1 else f"{base}-{Layer._ids[base]}"
@@ -152,6 +155,12 @@ class Layer:
 
     def state(self, key_path, lock, home, sleep):
         self.states[key_path] = (lock, home, sleep)
+        return self
+
+    def land(self, key_path, lock, home, sleep):
+        """Values used instead of `state` ones while the inner display is landscape (Duo per-screen schema)."""
+        assert key_path in self.states, f"{self.name}: set the portrait state of {key_path} first"
+        self.lstates[key_path] = (lock, home, sleep)
         return self
 
 
@@ -230,7 +239,9 @@ def layer_xml(l, ind="    "):
     a = [("id", l.id), ("name", l.name), ("bounds", f"0 0 {f(l.w)} {f(l.h)}"), ("position", f"{f(l.x)} {f(l.y)}")]
     if l.anchor != (0.5, 0.5):
         a.append(("anchorPoint", f"{f(l.anchor[0])} {f(l.anchor[1])}"))
-    a += [("zPosition", "0"), ("geometryFlipped", "0"), ("masksToBounds", "0"), ("opacity", f(l.opacity))]
+    a += [("zPosition", f(l.z)), ("geometryFlipped", "0"), ("masksToBounds", "0"), ("opacity", f(l.opacity))]
+    if l.sublayer:
+        a.append(("sublayerTransform", l.sublayer))
     if l.rot or l.scale != 1:
         a.append(("transform.rotation.z", f(l.rot)))
         t = f"rotate({f(math.degrees(l.rot))}deg)"
@@ -320,10 +331,19 @@ def style_xml(root):
             ["      </wallpaperPropertyGroups>", "    </style>"])
 
 
-def build_caml(root):
+def build_caml(root, allow_loops=False):
+    """`allow_loops`: looping animations are refused by default. Any one running loop keeps backboardd
+    re-rendering every frame (an idle Home Screen measured ~26% CPU for a single 29 pt spinning star, against
+    ~5% with none), and hiding the layer does not stop it; motion belongs in the state transitions (techniques H)."""
     names = [l.name for l, _ in walk(root)]
     dup = {n for n in names if names.count(n) > 1}
     assert not dup, f"duplicate layer names: {dup}"
+    loops = [l.name for l, _ in walk(root) if l.anim]
+    if loops and not allow_loops:
+        raise ValueError(f"{len(loops)} looping animations ({', '.join(loops[:5])}...): they keep the phone "
+                         "re-rendering while idle; move the motion into state transitions or pass allow_loops=True")
+    if loops:
+        print(f"warning: {len(loops)} looping animations run in every state; expect backboardd ~30% while idle")
     head = (f'  <CALayer id="root" name="Root Layer" bounds="0 0 {f(S)} {f(S)}" position="{f(C)} {f(C)}" '
             'zPosition="0" geometryFlipped="0" opacity="1" backgroundColor="0.035 0.02 0.045" '
             'allowsEdgeAntialiasing="1" allowsGroupOpacity="1" contentsFormat="RGBA8" cornerCurve="circular">')
@@ -382,7 +402,8 @@ def preview_img(key, w_px, h_px):
 
 def render(root, t, state_vals, k, only=None, opaque=True, tilt=(0.0, 0.0)):
     """tilt: simulated device motion in -1..1 per axis, applied to every gyro (parallax) layer."""
-    W = int(S * k)
+    side = root.w                                    # S, or DUO_R for the Duo per-screen schema
+    W = int(side * k)
     canvas = Image.new("RGBa", (W, W), (0, 0, 0, 255 if opaque else 0))
     prng = random.Random(7)
 
@@ -416,7 +437,7 @@ def render(root, t, state_vals, k, only=None, opaque=True, tilt=(0.0, 0.0)):
                  np.array([[c * sc, -s * sc, 0], [s * sc, c * sc, 0], [0, 0, 1]]) @
                  np.array([[1, 0, -l.anchor[0] * l.w], [0, 1, -l.anchor[1] * l.h], [0, 0, 1]]))
         M = M @ local
-        to_canvas = np.array([[k, 0, 0], [0, -k, S * k], [0, 0, 1]])
+        to_canvas = np.array([[k, 0, 0], [0, -k, side * k], [0, 0, 1]])
         if l.img or l.color:
             if l.img:
                 im = preview_img(l.img, l.w * k * sc, l.h * k * sc)
@@ -469,11 +490,12 @@ def posture_views(root, t, svals, k, clock_alpha, stretch=0.0, tilt=(0.0, 0.0), 
     return out
 
 
-def state_values(root, mix):
-    """mix: dict state -> weight (sums to 1)."""
+def state_values(root, mix, landscape=False):
+    """mix: dict state -> weight (sums to 1). landscape: use the Duo schema's landscape overrides."""
     out = {}
     for l, _ in walk(root):
         for kp, vals in l.states.items():
+            vals = l.lstates.get(kp, vals) if landscape else vals
             out.setdefault(l.name, {})[kp] = sum(vals[STATES.index(s)] * w for s, w in mix.items())
     return out
 
@@ -604,6 +626,189 @@ def transition_strip(root, a, b, path, steps=6, k=0.5, views=("folded", "unfolde
             y += rh[r] + 8
     sheet.save(path)
     return path
+
+
+# ----------------------------------------------------------------------------
+# iPhone Duo per-screen schema (iOS 27 `<wallpapers>`, as in Apple's Clownfish-V68; verified on device 2026-11-08)
+# ----------------------------------------------------------------------------
+# Each screen gets its own BACKGROUND / FLOATING pair, and every state value can differ by orientation
+# (portrait_* / landscape_*). One root unit is one device pixel, centred on the screen centre, in every posture
+# as long as the root is at least as wide as the landscape screen (2853): an 890-unit root came out scaled up
+# by 2853 / 2007 in landscape. Depth and gyro work as in the old schema; the AOD draws the clock on top.
+DUO_R = 3600.0                    # root side (units); content sits around DUO_C. Apple's is 6000.
+DUO_C = DUO_R / 2
+DUO_SCREENS = {                   # Apple's numbers, written into the style as they are
+    "cover": dict(key="TWO", screenName="Cover Screen", idealWidth=466, idealHeight=678, pixelWidth=1398,
+                  pixelHeight=2034, pixelParallaxBleed=64, pixelSquareWithParallax=3553,
+                  pixelSquareWithoutParallax=3489),
+    "inner": dict(key="ONE", screenName="Inner Display", idealWidth=669, idealHeight=951, pixelWidth=2007,
+                  pixelHeight=2853, pixelParallaxBleed=119, pixelSquareWithParallax=3608,
+                  pixelSquareWithoutParallax=3489),
+}
+# posture -> (screen, landscape?, visible (w, h), the user's clock digits (x0, x1, y0, y1)); px from the centre,
+# y up. The user stretches the clock tall: it reaches about halfway down the cover and the landscape screen and
+# about 37% down the inner portrait one (measured from their screenshots 2026-11-08; the width varies with the
+# digits shown, so x is the widest seen).
+DUO_VIEWS = {
+    "cover": ("cover", False, (1398, 2034), (-519, 322, -24, 751)),
+    "inner_portrait": ("inner", False, (2007, 2853), (-458, 460, 369, 1155)),
+    "inner_landscape": ("inner", True, (2853, 2007), (-486, 474, -57, 774)),
+}
+DUO_VIEW_NAMES = {"cover": "外螢幕", "inner_portrait": "內・直", "inner_landscape": "內・橫"}
+
+
+def duo_tree(name):
+    """A top-level tree: BACKGROUND ONE / FLOATING ONE (inner) or BACKGROUND TWO / FLOATING TWO (cover)."""
+    return Layer(name, DUO_R, DUO_R, DUO_C, DUO_C)
+
+
+def duo_caml(screens, allow_loops=False):
+    """screens: {"inner": (background, floating), "cover": (background, floating)} built with duo_tree()."""
+    assert DUO_R >= 2853, "a root narrower than the landscape screen gets scaled up there (see DUO_R)"
+    trees = [t for pair in screens.values() for t in pair]
+    names = [l.name for t in trees for l, _ in walk(t)]
+    dup = {n for n in names if names.count(n) > 1}
+    assert not dup, f"duplicate layer names: {dup}"
+    loops = [l.name for t in trees for l, _ in walk(t) if l.anim]
+    if loops and not allow_loops:
+        raise ValueError(f"{len(loops)} looping animations ({', '.join(loops[:5])}...); see build_caml")
+
+    def groups(tree, view):
+        par, props = [], []
+        for l, _ in walk(tree):
+            if l.parallax:
+                for axis in ("x", "y"):
+                    par.append([("axis", "string", axis), ("image", "string", "null"),
+                                ("keyPath", "string", f"transform.translation.{axis}"),
+                                ("layerName", "string", l.name), ("mapMaxTo", "integer", l.parallax),
+                                ("mapMinTo", "integer", -l.parallax), ("title", "string", "Gyro"),
+                                ("view", "string", view)])
+            for kp, (lock, home, sleep) in l.states.items():
+                ll, lh, ls = l.lstates.get(kp, (lock, home, sleep))
+                props.append([("keyPath", "string", kp), ("landscape_home", "real", lh),
+                              ("landscape_lock", "real", ll), ("landscape_sleep", "real", ls),
+                              ("layerName", "string", l.name), ("portrait_home", "real", home),
+                              ("portrait_lock", "real", lock), ("portrait_sleep", "real", sleep)])
+        return par, props
+
+    def array(tag, dicts, ind):
+        if not dicts:
+            return [f'{ind}<{tag} type="NSArray"/>']
+        out = [f'{ind}<{tag} type="NSArray">']
+        for d in dicts:
+            out.append(f"{ind}  <NSDictionary>")
+            for key, typ, val in d:
+                v = str(int(val)) if typ == "integer" else f(float(val)) if typ == "real" else esc(str(val))
+                out.append(f'{ind}    <{key} type="{typ}" value="{v}"/>')
+            out.append(f"{ind}  </NSDictionary>")
+        return out + [f"{ind}</{tag}>"]
+
+    ind = "          "
+    style = ["    <style>", '      <wallpapers type="NSArray">']
+    for scr in ("cover", "inner"):                    # Apple's order
+        info, (bg, fl) = DUO_SCREENS[scr], screens[scr]
+        assert (bg.name, fl.name) == (f"BACKGROUND {info['key']}", f"FLOATING {info['key']}"), (bg.name, fl.name)
+        bpar, bprops = groups(bg, "Background")
+        fpar, fprops = groups(fl, "Floating")
+        style += ["        <NSDictionary>", f'{ind}<backgroundAssetNames type="NSArray"/>',
+                  f'{ind}<backgroundLayerName type="string" value="{bg.name}"/>']
+        style += array("backgroundParallaxGroups", bpar, ind) + array("backgroundPropertyGroups", bprops, ind)
+        style += [f'{ind}<floatingAssetNames type="NSArray"/>',
+                  f'{ind}<floatingLayerName type="string" value="{fl.name}"/>']
+        style += array("floatingParallaxGroups", fpar, ind) + array("floatingPropertyGroups", fprops, ind)
+        for key in ("idealHeight", "idealWidth", "pixelHeight", "pixelParallaxBleed", "pixelSquareWithParallax",
+                    "pixelSquareWithoutParallax", "pixelWidth"):
+            style.append(f'{ind}<{key} type="integer" value="{info[key]}"/>')
+        style += [f'{ind}<retinaMultiplier type="integer" value="3"/>',
+                  f'{ind}<screenName type="string" value="{info["screenName"]}"/>',
+                  f'{ind}<supportsLandscape type="integer" value="1"/>', "        </NSDictionary>"]
+    style += ["      </wallpapers>", "    </style>"]
+    head = (f'  <CALayer id="root" name="Root Layer" bounds="0 0 {f(DUO_R)} {f(DUO_R)}" '
+            f'position="{f(DUO_C)} {f(DUO_C)}" zPosition="0" geometryFlipped="0" opacity="1" '
+            'backgroundColor="0 0 0" allowsEdgeAntialiasing="1" allowsGroupOpacity="1" contentsFormat="RGBA8" '
+            'cornerCurve="circular">')
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<caml xmlns="http://www.apple.com/CoreAnimation/1.0">',
+             head] + style + ["    <sublayers>"]
+    for scr in ("inner", "cover"):                    # Apple's order: the inner display's trees first
+        for t in screens[scr]:
+            lines += layer_xml(t, "      ")
+    lines += ["    </sublayers>", "    <modules/>", "  </CALayer>", "</caml>", ""]
+    return "\n".join(lines)
+
+
+def duo_view(screens, posture, mix, k, clock_alpha=1.0, tilt=(0.0, 0.0), depth=True):
+    """One posture of the Duo schema: BACKGROUND, the user's clock, FLOATING (clock on top when depth=False)."""
+    scr, land, (w, h), (cx0, cx1, cy0, cy1) = DUO_VIEWS[posture]
+    bg, fl = screens[scr]
+    out = []
+    for tree in (bg, fl):
+        root = Layer("Preview Root", DUO_R, DUO_R, DUO_C, DUO_C).add(tree)
+        img = render(root, 1.2, state_values(root, mix, land), k, opaque=tree is bg, tilt=tilt)
+        box = (int((DUO_C - w / 2) * k), int((DUO_C - h / 2) * k), int((DUO_C + w / 2) * k), int((DUO_C + h / 2) * k))
+        out.append(img.crop(box))
+    im, fl_im = out
+
+    def clock(base):
+        if clock_alpha <= 0.01:
+            return base
+        bw, bh = int((cx1 - cx0) * k), int((cy1 - cy0) * k)
+        glyphs = Image.new("L", (1000, 320), 0)
+        ImageDraw.Draw(glyphs).text((10, 10), "9:41", font=ImageFont.truetype(CLOCK_FONT, 220), fill=255)
+        glyphs = glyphs.crop(glyphs.getbbox()).resize((bw, bh), Image.LANCZOS)
+        ink = Image.new("RGBA", (bw, bh), (255, 255, 255, 255))
+        ink.putalpha(glyphs.point(lambda v: int(v * 0.92 * clock_alpha)))
+        base.alpha_composite(ink, (int((w / 2 + cx0) * k), int((h / 2 - cy1) * k)))
+        return base
+
+    if depth:
+        im = clock(im)
+        im.alpha_composite(fl_im)
+    else:
+        im.alpha_composite(fl_im)
+        im = clock(im)
+    return im.convert("RGB")
+
+
+def make_duo_previews(screens, preview_dir, names, k=0.22):
+    """States x postures sheet, Lock->Home and Lock->Sleep transition strips, and the luminance per state."""
+    os.makedirs(preview_dir, exist_ok=True)
+    font = ImageFont.truetype(LABEL_FONT, 20)
+    rows = [(f"{names['lock']}・景深", {"lock": 1.0}, 1.0, (0, 0), True),
+            (f"{names['lock']}・傾斜", {"lock": 1.0}, 1.0, (-1, 1), True),
+            (names["home"], {"home": 1.0}, 0.0, (0, 0), True),
+            (names["sleep"], {"sleep": 1.0}, 1.0, (0, 0), False)]
+
+    def sheet(tiles, labels, path):
+        pad, lab = 20, 32
+        colw = [max(r[i].width for r in tiles) for i in range(len(tiles[0]))]
+        rowh = [max(im.height for im in r) for r in tiles]
+        out = Image.new("RGB", (sum(colw) + pad * (len(colw) + 1), sum(rowh) + (pad + lab) * len(tiles) + pad),
+                        (22, 20, 26))
+        d, y = ImageDraw.Draw(out), pad
+        for r, row in enumerate(tiles):
+            x = pad
+            for i, im in enumerate(row):
+                d.text((x, y + 6), labels[r][i], fill=(235, 220, 230), font=font)
+                out.paste(im, (x, y + lab))
+                x += colw[i] + pad
+            y += rowh[r] + lab + pad
+        out.save(path)
+
+    tiles = [[duo_view(screens, p, mix, k, ca, tilt, depth) for p in DUO_VIEWS] for _, mix, ca, tilt, depth in rows]
+    sheet(tiles, [[f"{r[0]}｜{DUO_VIEW_NAMES[p]}" for p in DUO_VIEWS] for r in rows],
+          os.path.join(preview_dir, "states_x_postures.png"))
+    for a, b in (("lock", "home"), ("lock", "sleep")):
+        us = [i / 5 for i in range(6)]
+        strip = [[duo_view(screens, p, {a: 1 - u, b: u}, k * 0.6, 1.0 - (u if b == "home" else 0.0),
+                           depth=not (b == "sleep" and u >= 0.5)) for u in us] for p in DUO_VIEWS]
+        sheet(strip, [[f"{DUO_VIEW_NAMES[p]} u={u:.1f}" for u in us] for p in DUO_VIEWS],
+              os.path.join(preview_dir, f"transition_{a}_{b}.png"))
+    lum = {}
+    for st in STATES:
+        a = np.asarray(duo_view(screens, "inner_portrait", {st: 1.0}, 0.12, 0.0)).astype(np.float32) / 255
+        lin = np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+        lum[st] = round(float((lin @ np.array([0.2126, 0.7152, 0.0722], np.float32)).mean()), 4)
+    print("luminance Y (inner portrait):", lum, f" home/lock {lum['home'] / lum['lock']:.2f}")
 
 
 # ----------------------------------------------------------------------------

@@ -220,12 +220,54 @@ Selector 的星雨：
 ```
 
 - 圖層是**用名稱比對**的，所以名稱必須唯一。
-- 已實機驗證的狀態 keyPath：`opacity`、`position.x`、`position.y`、`transform.scale.xy`、`transform.rotation.z`（千夏的手、FX 的漩渦）。
+- 已實機驗證的狀態 keyPath：`opacity`、`position.x`、`position.y`、`transform.scale.xy`、`transform.rotation.z`（千夏的手、FX 的漩渦），以及：
+  - `speed`：設 0 會暫停底下的循環動畫，但轉場途中會亂跳（techniques.md E8）。
+  - `hidden`：內插出來的中間值只要不是 0 就算隱藏（E6）。
+- `opacity` 的狀態值超過 1 會被截斷成 1（E7）。
 - 參考作品（LayeredAnimation）還用過以下 keyPath，在 ParameterizedCA 中 ⚠️ 未驗證：
   - `bounds.size.width`／`bounds.size.height`
   - `zPosition`
   - `backgroundColor`
   - `cornerRadius`
+- kit 可以輸出靜態的 `zPosition` 和 `sublayerTransform`（`Layer(z=..., sublayer="perspective(1250)")`）。Apple 的 Duo 桌布用它們做「AOD 時整個場景往後退」的 3D 效果；我們還沒在實機驗證 ⚠️。
+
+### 6.1 Duo 分螢幕格式的 `<style>` ✅（`duo_caml`）
+
+```xml
+<style>
+  <wallpapers type="NSArray">
+    <NSDictionary>                                   <!-- 外螢幕；第二個字典是 Inner Display（ONE） -->
+      <backgroundAssetNames type="NSArray"/>
+      <backgroundLayerName type="string" value="BACKGROUND TWO"/>
+      <backgroundParallaxGroups type="NSArray"> ...格式同 wallpaperParallaxGroups... </backgroundParallaxGroups>
+      <backgroundPropertyGroups type="NSArray">
+        <NSDictionary>                               <!-- 沒有 view 鍵；值分直向、橫向 -->
+          <keyPath type="string" value="opacity"/>
+          <landscape_home type="real" value="0"/><landscape_lock type="real" value="0.24"/><landscape_sleep type="real" value="0.1"/>
+          <layerName type="string" value="Tint Hiro TWO"/>
+          <portrait_home type="real" value="0"/><portrait_lock type="real" value="0.24"/><portrait_sleep type="real" value="0.1"/>
+        </NSDictionary>
+      </backgroundPropertyGroups>
+      <floatingAssetNames type="NSArray"/>
+      <floatingLayerName type="string" value="FLOATING TWO"/>
+      <floatingParallaxGroups type="NSArray"> ... </floatingParallaxGroups>
+      <floatingPropertyGroups type="NSArray"> ... </floatingPropertyGroups>
+      <idealHeight type="integer" value="678"/><idealWidth type="integer" value="466"/>
+      <pixelHeight type="integer" value="2034"/><pixelParallaxBleed type="integer" value="64"/>
+      <pixelSquareWithParallax type="integer" value="3553"/><pixelSquareWithoutParallax type="integer" value="3489"/>
+      <pixelWidth type="integer" value="1398"/>
+      <retinaMultiplier type="integer" value="3"/>
+      <screenName type="string" value="Cover Screen"/>
+      <supportsLandscape type="integer" value="1"/>
+    </NSDictionary>
+  </wallpapers>
+</style>
+```
+
+- 螢幕資訊的數值照抄 Apple 原檔（`DUO_SCREENS`）。`pixelSquareWithoutParallax` 3489 是內螢幕對角線的像素長。
+- parallax 字典沿用舊格式（含 `view` 鍵），實機可用。
+- Wallpaper.plist 用舊的範本就能匯入。root 的子圖層照 Apple 的順序，先放內螢幕的兩棵樹。
+- 座標和可見範圍見 techniques.md §F4。
 
 ## 7. LayeredAnimation 的狀態機 🔶（只為了讀懂參考作品）
 
@@ -256,13 +298,16 @@ Selector 的星雨：
 
 | kit | 輸出 |
 |---|---|
-| `Layer(name, w, h, x, y, kind, img, color, opacity, rot, scale, anchor, trilinear)` | 圖層的各屬性、`<contents>` |
+| `Layer(name, w, h, x, y, kind, img, color, opacity, rot, scale, anchor, trilinear, z, sublayer)` | 圖層的各屬性、`<contents>`；`z` 是 `zPosition`，`sublayer` 是 `sublayerTransform` 字串 ⚠️ |
 | `.add(*children)` | `<sublayers>` |
 | `.animate(kp, values, dur, autoreverses=True, timing="easeInEaseOut", key_times=None, offset=0)` | 一個 `<animation>` |
 | `.state(kp, lock, home, sleep)` | `wallpaperPropertyGroups` 的一筆 |
+| `.land(kp, lock, home, sleep)` | Duo 格式的 `landscape_*` 值（要先有 `.state()`） |
 | `.parallax = N` | `wallpaperParallaxGroups` 的 x、y 各一筆 |
 | `.emitter = dict(size, mode, render, cells=[...])` | CAEmitterLayer 的屬性與 cells（`kind="CAEmitterLayer"`） |
 | `group(name, kind, w=S, h=S, x=C, y=C)` | 預設是滿版的 S×S 群組 |
 | `image_layer(name, key, h=None, w=None, x, y)` | 依圖片長寬比補齊另一邊 |
 | `asset(name, PIL.Image)` | 登記 `assets/name` |
-| `build_caml(root)` → `package(caml, out, build_dir)` | 輸出 `(out, ident, desc_uuid, ca_name)` |
+| `build_caml(root)` → `package(caml, out, build_dir)` | 輸出 `(out, ident, desc_uuid, ca_name)`；有循環動畫時報錯，除非 `allow_loops=True` |
+| `duo_tree(name)`、`duo_caml({"inner": (bg, fl), "cover": (bg, fl)})` | Duo 分螢幕格式（§6.1） |
+| `make_duo_previews(screens, dir, names)` | Duo 三種姿態的總覽與轉場分解圖 |

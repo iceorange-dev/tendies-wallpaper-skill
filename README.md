@@ -9,6 +9,8 @@
 - **ParameterizedCA**：單一 CA bundle，用 `wallpaperParallaxGroups` 做陀螺儀視差，用 `wallpaperPropertyGroups` 定義 Lock／Home／Sleep 三種狀態。
 - **iOS 27 景深＋陀螺儀修復已內建**：bundle 命名為 `<id>.Clownfish_Gyro.ca`，並寫入 rendering configuration；identity 由內容雜湊產生。產出的檔案用 **AirCard Depth Test** 匯入。
 - **摺疊機版面**：890×890 pt 的正方形 root 會被 PosterBoard 以 aspect-fill 置中，闔上直向、展開直向、展開橫向都能用。時鐘位置依實機截圖量測。
+- **iPhone Duo 分螢幕格式**：iOS 27 原廠 Duo 桌布的寫法，外螢幕、內螢幕直向、內螢幕橫向可以各自取景，數值也能分直向、橫向。
+- **待機不耗電**：循環動畫會讓手機待機時持續重畫（實測 backboardd 約 30% CPU，手機會發燙），所以預設禁止。動態都放在解鎖和 AOD 的轉場裡，待機時跟靜態桌布一樣（約 4%）。
 - **場景圖 API**：`Layer`、`group`、`image_layer`、`.animate()`、`.state()`、`.parallax`、粒子發射器。
 - **預覽與檢查**：狀態×姿態總覽、動畫 GIF、轉場中間幀分解圖、各狀態亮度量測。
 - **技巧手冊**：從約 50 份參考作品和三張實機驗證過的範例桌布整理出約 50 項技巧，每項都標了驗證狀態（✅ 實機驗證／🔶 參考作品在用／⚠️ 未驗證）。
@@ -22,13 +24,16 @@
   references/caml-syntax.md         tendies 封包與 CAML 語法速查
   references/reference-catalog.md   參考作品分析摘要（參考檔本身不在本 repo）
   scripts/ref_*.py                  參考 .tendies 的唯讀分析與靜態渲染工具
+  scripts/measure_backboardd.py     從電腦量手機 backboardd 的 CPU（耗電）
 tendies_kit.py                      引擎：場景圖 → CAML → 打包，含預覽渲染器與轉場／亮度檢查
 tendies_art.py                      共用的程序美術與素材處理（光暈、光束、淡出、切 sprite）
 ongeki.py                           從 ONGEKI 解包資料讀卡面、劇情立繪（含表情臉）、章節背景
 template/                           打包用的 PosterKit metadata 範本
-build_tendies.py                    範例一：Manosaba（Hiro／Ema 切入、法庭、光塵）
+build_tendies.py                    範例一：Manosaba（Hiro／Ema 切入、法庭；Duo 分螢幕格式、零循環動畫）
 build_arisu.py                      範例二：ONGEKI 珠洲島有栖「小劇場」（布幕揭幕、吊線道具、AOD 午睡）
 build_chinatsu.py                   範例三：ONGEKI 日向千夏「學園中庭」（官方立繪眨眼、揮手、背景對焦、夜晚 AOD）
+duo_screens_probe.py                Duo 分螢幕格式的探測檔（座標格線、各螢幕標記、景深色帶）
+perf_probe.py                       耗電測試包（以千夏為底，各種「停止動畫」做法的變體）
 ```
 
 建置時產生的檔案都放在 `out/`（`<name>.tendies`、`out/preview/<name>/`、`out/build/<name>/`），不進 repo。本機工具（Real-ESRGAN 等）放在 `tools/`，同樣不進 repo。

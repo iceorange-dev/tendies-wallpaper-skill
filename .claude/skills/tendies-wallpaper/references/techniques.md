@@ -7,7 +7,7 @@
 
 程式碼都是 `tendies_kit` 的寫法，座標 y 軸向上，root 為 890×890 pt，`C = 445`。
 出處欄的檔名請對照 `reference-catalog.md`。
-`build_tendies.py` 是 Manosaba，`build_arisu.py` 是有栖小劇場。
+`build_tendies.py` 是 Manosaba（Duo 分螢幕格式、零循環動畫的範例，座標是裝置像素，見 §F4），`build_arisu.py` 是有栖小劇場。
 
 ---
 
@@ -91,7 +91,29 @@ Lock 放團體主視覺，Home 換成一整片 Q 版頭像平鋪的圖樣（像�
 
 ---
 
+## T. 轉場即動態（待機零循環）✅（`build_tendies.py`，Manosaba Duo 版）
+
+待機時畫面必須完全靜止（§H），所以所有動作都寫成狀態值，靠解鎖滑動和進出 AOD 的內插播出來。每個動作都是「Lock 值 → Home／Sleep 值」的線性內插；用巢狀圖層把幾個線性動作疊起來，轉場就會有層次。實機驗證 ✅，待機量到 4.0%。
+
+- **兩段速滑出**：角色的 Stage 滑 `OFF = 520`，她的刀在裡面再多滑 `RUSH = 260`。刀比人快，看起來有前後景的深度。
+  ```python
+  rush = group("Hiro Blade Rush").state("position.x", C, C - RUSH, C)
+  swing = Layer("Hiro Blade Swing", bw, bh, C + 6, 370).state("transform.rotation.z", 0, rad(18), rad(-10))
+  ```
+- **碎片炸開、飛入歸位**：每片碎片一個 `Fly` 群組（`position.x`、`position.y` 狀態），裡面再一個 `Spin`（`transform.rotation.z` 狀態）。離場的人，碎片從原位往外飛、邊飛邊轉；進場的人反過來，碎片從外面飛回原位。進 AOD 時碎片往下掉。
+- **背景推近與後退**：`BG Lean` 的 `transform.scale.xy` 設成 (1.0, 1.06, 0.95)。解鎖時往前推，進 AOD 時往後退；喚醒（包括打開手機）就倒過來往前推。
+- **從腳底沉下**：整組角色放在 `anchor=(0.5, 0)` 的 Zoom 層，縮放 (1.0, 0.94, 0.86)。進 AOD 時她像往後退進場景裡（E5）。
+- **AOD 兩人升起**：`Duo Stage` 的 `position.y` 從低 170 pt 的位置升到原位，同時淡入。
+- **先淡出，後淡入**：離場的人多包一層同樣的透明度狀態，變成 (1-u)²（E4）。對方淡入到一半時，她已經幾乎看不見，雙重曝光的時間比較短。
+- 光束、光點也跟著狀態微轉、微移，取代原本的循環擺動。
+
+原本的循環動畫（漂浮、呼吸、閃爍、粒子）全部拿掉，改成不會動的版本。光點變成散布的靜態小圖，加上陀螺儀視差。
+
+---
+
 ## B. 角色生命感
+
+> ⚡ 本節都是循環動畫。待機時它們會讓系統每一幀都重畫，backboardd 多 26–30% CPU，手機會發燙（§H），所以現在預設禁用（`allow_loops=True` 才能建置）。要用之前先問使用者，或改寫成 §T 的轉場版本。
 
 ### B1 漂浮、搖擺、呼吸 ✅
 固定的巢狀順序：`Stage（狀態）→ Parallax（CATransformLayer, gyro）→ Float（position.y）→ Sway（rotation.z）→ Body`。
@@ -164,6 +186,8 @@ Selector 的 `object` 在同一層同時掛了三個動畫：`position.y`（3.6 
 ---
 
 ## C. 環境動態
+
+> ⚡ 本節都是循環動畫。待機時它們會讓系統每一幀都重畫，backboardd 多 26–30% CPU，手機會發燙（§H），所以現在預設禁用（`allow_loops=True` 才能建置）。要用之前先問使用者，或改寫成 §T 的轉場版本。
 
 ### C1 吊線道具（鐘擺）✅（有栖的月亮、熊、漢堡、星星；Akane／Arisu-DDA 的星燈）
 線畫在道具圖裡（`cardboard(draw, px, thread_pt)`），`anchor=(0.5, 1.0)` 放在線頂，`rotation.z` 擺幅 ±3–6°，週期 2.8–4.4 秒，每個道具的 `timeOffset` 都要不同。
@@ -307,6 +331,17 @@ for a, b in zip(imgs[:3], imgs[3:]):
 ### E5 從腳底縮放 ✅
 一個 S×S 的 Stage 圖層，`position` 放在腳的位置，`anchor=(0.5, FEET/S)`，`transform.scale.xy` 依狀態設為 0.9→1。角色就像站穩地往前一步，不會浮起來。
 
+### E6 `hidden` 狀態：轉場一開始就切換 ✅（耗電測試 G）
+`hidden` 是布林值，狀態內插出來的中間值只要不是 0，就算隱藏。把值設成 (0, 10000, 10000)，轉場一開始圖層就消失；反方向回到 Lock 時，要到轉場的最後一刻才出現。
+
+### E7 透明度超過 1 會被截斷 ✅（耗電測試 G）
+`opacity` 狀態設成 (0, 10000, 10000) 時，轉場的第一幀就完全不透明，靜止時看起來跟 1 一樣。和 E6 搭配，就能在同一幀把 A 換成 B。只設 50 不夠：第一幀只有約 0.25，實機會看到元素閃一下。
+
+### E8 `speed` 狀態可以暫停循環動畫 ✅，但轉場途中會亂跳
+`speed` 設成 (1, 0, 0)，桌面和 AOD 上的循環動畫就停住，耗電跟沒有動畫一樣（3.9%）。問題在於動畫播到哪一格，是用「開機到現在的秒數 × speed」算的：轉場途中 speed 一變，時間點就跳到隨機位置，畫面看起來在亂跳。
+
+要用的話，必須搭配 E6、E7 換成靜止替身。替身要停在動畫第 0 秒的姿勢（`perf_probe.pose()`）；直接停在 model 值的話，所有落葉會排成一條線。這套做法實機可行，量到 6.7%，但使用者否決了：鎖定畫面照樣耗電，下拉回鎖定時還會卡一下。最後改成完全不放循環動畫（§H）。
+
 ---
 
 ## F. 版面
@@ -330,6 +365,44 @@ for a, b in zip(imgs[:3], imgs[3:]):
 - 鎖定時，角色頭頂約在 y≈556，放 FLOATING，時鐘被拉長也沒問題。
 - Sleep 時，主體頂端 ≤ 410–415。
 - 臉不要放在時鐘的數字範圍裡（`CLOCK` 表）。
+- Duo 分螢幕格式用每個螢幕自己的時鐘數字（§F4）。
+
+### F4 Duo 分螢幕格式 ✅
+這是 iOS 27 原廠 Duo 桌布（Clownfish-V68）的寫法，匯入的桌布也能用（探測檔和 Manosaba 都在實機驗證過）。
+- **結構**：root 的 `<style>` 放 `<wallpapers>` 陣列，每個螢幕一個字典。外螢幕（`Cover Screen`）用 `BACKGROUND TWO`／`FLOATING TWO`，內螢幕（`Inner Display`）用 `ONE`。每個螢幕有自己的 parallax 和 property groups，數值分成 `portrait_*`／`landscape_*`。格式見 caml-syntax.md §6.1。
+- **座標**：1 個 root 單位等於 1 個裝置像素，root 中心對齊螢幕中心，y 軸向上。可見範圍是外螢幕 1398×2034、內螢幕直向 2007×2853、橫向 2853×2007（`DUO_VIEWS`）。
+- **root 邊長要 ≥ 2853**：890 的探測檔在橫向被系統再放大了 2853/2007 倍，3600 的就是 1:1。`duo_caml` 會檢查。
+- **實機行為**：
+  - 每個螢幕顯示自己那組圖層，Lock／Home／Sleep 和直橫向的數值都會跟著切換。
+  - 景深（FLOATING 蓋過時鐘）、陀螺儀、AOD（時鐘在最上層）都跟舊格式一樣。
+  - 開闔時兩組圖層之間不會變形，各螢幕只顯示自己的；轉動中的那半邊，系統會加上變暗和模糊。
+  - 打開手機會把內螢幕從 AOD 喚醒，所以「Sleep → Lock」的轉場就是開闔時看得到的動畫。原廠的開闔縮放推測來自這裡 ⚠️。
+- **kit**：
+  - `duo_tree(name)` 建頂層樹。
+  - `Layer.land(kp, lock, home, sleep)` 設橫向值。
+  - `duo_caml(screens)` 輸出。
+  - `make_duo_previews(screens, dir, names)` 預覽三種姿態，時鐘照 `DUO_VIEWS` 畫。
+- **使用者的時鐘拉高了**。實測底部從螢幕中心算（px）：外螢幕 −24、內螢幕直向 +369、橫向 −57。數字寬度會隨時間變化，x 取看過最寬的。
+
+### F5 同一個構圖，各螢幕取景 ✅（`build_tendies.py`）
+使用者否決了「依方向重排元素」：橫向時角色站一側、刀放另一側，AOD 兩人拉開，被說「亂、不整齊、沒有原本好」。改成以下做法：
+- **場景只寫一次**：照舊用 S×S 的點座標。
+- **每個螢幕一份副本**：`for_screen()` 替每個螢幕複製一份，所有圖層名稱加上 ` ONE`／` TWO`，放進一個 Frame 圖層。Frame 的 `transform.scale.xy` 是每點幾像素，`position.y` 決定高度。內螢幕的橫向取景用 `.land()` 寫在同一個 Frame 上。
+- **取景參數放在 `POSTURES`**：
+  - `F`：大小。
+  - `head`：角色頭頂的落點，在時鐘底部往上約三分之一。鎖定時靠景深，她在時鐘前面。
+  - `duo_head`、`duo_h`：AOD 兩人的頭頂和全身高度。
+  `framing()` 用這些算出 Frame 的位移，以及 AOD 兩人的縮放。
+- **暗角跟著螢幕形狀**：每種姿態一個橢圓暗角。內螢幕放直、橫兩個，用 opacity 狀態加 `.land()` 依方向切換。只用一個正方形暗角的話，橫向會露出它的邊（實機看到 ✅）。
+- **背景要蓋滿最寬的範圍**：背景圖和光束都要涵蓋每種姿態最寬的範圍。光束圖左右兩側做淡出，橫向才看不到圖的邊。橫向比較寬，平移距離改短（`LAND_PAN`）。
+- **外螢幕取景比內螢幕緊**，打開手機時看起來就像鏡頭拉遠。
+
+### F6 AOD 人物半身 ✅
+使用者要求「把人放大往下放，半身那種感覺」。做法：
+- 兩人並排站在 y = 0，整體高 `DUO_H`。
+- 每種姿態用錨點在腳底的 `Duo Zoom` 放大，再抬到頭頂剛好在時鐘下緣下方約 60–80 px，身體由螢幕底邊裁掉。
+- 只有上面 72%（`DUO_KEEP`）可能露出，其餘直接裁掉省記憶體。
+- 立繪用原圖（約 3800 px 高），縮到最大的顯示尺寸。
 
 ---
 
@@ -380,11 +453,36 @@ Real-ESRGAN `realesrgan-x4plus-anime`（ncnn-vulkan，在 RTX 5080 上約 3 秒�
 
 ## H. 效能與版本變體
 
+### H1 待機零循環動畫（硬規則）✅
+使用者回報手機待機會發燙。用 `scripts/measure_backboardd.py` 從電腦讀 backboardd（負責畫面合成的系統行程）的 CPU，停在桌面閒置 60 秒：
+
+| 桌布 | 平均 CPU |
+|---|---|
+| 靜態桌布 | 5.7% |
+| Manosaba、千夏、FX、有栖（舊版，有循環動畫） | 32–38% |
+| 千夏拿掉所有循環動畫 | 5.2% |
+| 千夏只留一顆 29 pt 的旋轉星星 | 26.3% |
+| Manosaba Duo 版（零循環，動態都在轉場） | **4.0%** |
+
+耗電跟動畫多寡幾乎無關，關鍵是「有沒有任何東西在動」：只要有一樣在動，整個畫面每一幀都要重畫。所以規則是待機零循環，動態放進轉場（§T）。
+
+其他試過的做法（都以千夏為底）：
+
+| 做法 | 平均 CPU | 結果 |
+|---|---|---|
+| 動畫層在桌面時透明度設 0 | 34.7% | 照樣耗電，看不到也在重畫 |
+| `speed` 狀態暫停（E8） | 3.9% | 省電，但轉場途中亂跳 |
+| 動畫加上限制幀率的設定（`frameInterval`、`discretizesTime`、`preferredFramesPerSecond`） | 18.5% | 只省一半；三個裡是哪一個生效還不知道 ⚠️ |
+| 只在鎖定畫面動，桌面和 AOD 換成靜止替身（E6＋E7＋E8） | 6.7% | 桌面省電，但鎖定畫面照樣耗電，下拉回鎖定時還會卡一下，使用者否決 |
+
+量測時手機要平放在桌上不動，停在主畫面。前景 App（例如 Discord）會把數字拉高到 20% 以上，手持時陀螺儀感應到的微小晃動也會。
+
+### H2 記憶體與版本變體
+
 - **記憶體**：建置時會印出解碼後大小（寬×高×4）。有栖約 77 MB、36 張圖。
   參考作品中，rosalia 有一張 7680×3268 的圖，光它就約 100 MB。作者也註明：記憶體 < 8 GB 的機型要用「better performance」版。
 - **效能版** 🔶：把同一套素材降解析度，例如 7680→2456 px（26 MB→6 MB）、4961→1966 px（48 MB→6 MB）。在我們的管線裡，等於把 `PPT` 調成 2。使用者回報卡頓或閃退時再提供。
 - **無 AOD 版** 🔶：只改 Sleep 的排版（位置／尺寸）。作者說明不開 AOD 的使用者選這版可以避免動畫 bug。
-- **無桌面動畫版** 🔶：直接拿掉循環動畫，例如 BG 的旋轉裝飾。
 - 我們目前只出一個版本。使用者有需要時再加變體開關，例如 `--perf` 參數改用 `PPT=2`。
 
 ---
@@ -422,3 +520,6 @@ Real-ESRGAN `realesrgan-x4plus-anime`（ncnn-vulkan，在 RTX 5080 上約 3 秒�
 | E3 差分檢查 | 遮擋有沒有漏 |
 | 使用者的修復腳本（oracle） | `python -I tools/fix_caplayground_depth_gyro.py out/X.tendies -o <暫存>/check.tendies`：結構被接受且 CA 資源逐位元組相同。腳本若不在本機，就跳過 |
 | `scripts/ref_*.py` | 分析參考檔，見 reference-catalog.md |
+| `make_duo_previews(screens, dir, names)` | Duo 分螢幕格式的總覽和轉場分解圖 |
+| `scripts/measure_backboardd.py LABEL` | 從電腦量手機 backboardd 的 CPU：60 秒，印出平均、中位數、記憶體，並記到 `out/perf/measurements.csv`。需要：開發者模式、`pymobiledevice3`、以管理員身分執行的 `pymobiledevice3 remote tunneld`（iOS 17 以後需要；iOS 27 會自己掛好開發者映像檔） |
+| 推進 AirCard | `pymobiledevice3 apps push --documents com.mak5er.aircard X.tendies /Documents/Tendies/X.tendies`（AirCard Depth Test 的 bundle id）。Windows 要先裝 Apple Devices；在 Git Bash 下要加 `MSYS_NO_PATHCONV=1`，否則手機端路徑會被改寫 |
