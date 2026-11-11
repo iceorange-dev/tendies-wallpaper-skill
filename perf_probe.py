@@ -21,8 +21,13 @@ import os
 import sys
 
 import tendies_kit as kit
-import build_chinatsu as base
 from tendies_kit import Layer, S, C, walk, build_caml, package
+
+try:
+    import chinatsu_loops as base   # build_chinatsu.py as of commit 2a0ccd6, the last version that looped
+except ImportError:
+    sys.exit("perf_probe measures what loops cost, on the looping Chinatsu: "
+             "git show 2a0ccd6:build_chinatsu.py > chinatsu_loops.py")
 
 OUT = os.path.join(base.OUT, "perf")
 VARIANTS = ("A", "B", "C", "D", "E", "F", "G", "H")

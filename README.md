@@ -30,8 +30,8 @@ tendies_art.py                      共用的程序美術與素材處理（光�
 ongeki.py                           從 ONGEKI 解包資料讀卡面、劇情立繪（含表情臉）、章節背景
 template/                           打包用的 PosterKit metadata 範本
 build_tendies.py                    範例一：Manosaba（Hiro／Ema 切入、法庭；Duo 分螢幕格式、零循環動畫）
-build_arisu.py                      範例二：ONGEKI 珠洲島有栖「小劇場」（布幕揭幕、吊線道具、AOD 午睡）
-build_chinatsu.py                   範例三：ONGEKI 日向千夏「學園中庭」（官方立繪眨眼、揮手、背景對焦、夜晚 AOD）
+build_arisu.py                      範例二：ONGEKI 珠洲島有栖「小劇場」（布幕揭幕、吊線道具、AOD 午睡；Duo 分螢幕格式、零循環動畫）
+build_chinatsu.py                   範例三：ONGEKI 日向千夏「學園中庭」（招呼換成飛撲、背景對焦、夜晚 AOD；Duo 分螢幕格式、零循環動畫）
 duo_screens_probe.py                Duo 分螢幕格式的探測檔（座標格線、各螢幕標記、景深色帶）
 perf_probe.py                       耗電測試包（以千夏為底，各種「停止動畫」做法的變體）
 ```

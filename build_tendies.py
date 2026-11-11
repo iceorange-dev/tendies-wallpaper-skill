@@ -129,7 +129,7 @@ def build_background():
     arr[..., 3] += np.random.default_rng(1).uniform(-1.5, 1.5, arr.shape[:2])   # dither vs banding
     asset("god_rays.png", Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGBA"))
 
-    # radial vignette; each posture gets its own, shaped to its screen (for_screen)
+    # radial vignette; each posture gets its own, shaped to its screen (build_screens)
     yy, xx = np.mgrid[0:1024, 0:1024].astype(np.float32)
     r = np.hypot(xx - 511.5, yy - 511.5) / 512
     va = np.clip((r - 0.42) / 0.55, 0, 1) ** 1.4 * 235
@@ -309,7 +309,7 @@ def build_floating():
     # --- sleep / AOD: the pair, half-body side by side, rising into view just below the clock ----
     # They stand on y = 0 with their heads at DUO_H; only the top DUO_KEEP of each figure is kept, since the
     # screen's bottom edge crops them there or higher in every posture. The Duo Zoom (anchored at their feet)
-    # sizes and places the pair per posture (for_screen).
+    # sizes and places the pair per posture (build_screens).
     duo_par = group("Duo Parallax", kind="CATransformLayer")
     duo_par.parallax = 10
     most = max(q["duo_h"] for q in POSTURES.values())       # the most pixels any posture shows of a figure
@@ -355,57 +355,22 @@ def framing(posture):
     return dict(F=F, dy=dy, z=z, feet=feet, vignette=(1.6 * w / F, 1.42 * h / F, C - dy / F))
 
 
-def find(tree, name):
-    return next(l for l, _ in walk(tree) if l.name == name)
-
-
-def for_screen(scene, scr):
-    """One screen's BACKGROUND / FLOATING pair: a renamed copy of the scene in a frame, with every
-    posture-dependent value set. The inner display carries its landscape framing as landscape values."""
-    key = DUO_SCREENS[scr]["key"]
-    views = [p for p, v in DUO_VIEWS.items() if v[0] == scr]
-    port = framing(next(p for p in views if not DUO_VIEWS[p][1]))
-    land = next((framing(p) for p in views if DUO_VIEWS[p][1]), None)
-
-    def put(layer, key_path, portrait, landscape):     # constant within each orientation
-        layer.state(key_path, portrait, portrait, portrait)
-        if land:
-            layer.land(key_path, landscape, landscape, landscape)
-
-    pair = []
-    for part in scene:
-        frame = Layer(f"{part.name} Frame", S, S, DUO_C, DUO_C + port["dy"], scale=port["F"])
-        put(frame, "transform.scale.xy", port["F"], land and land["F"])
-        put(frame, "position.y", DUO_C + port["dy"], land and DUO_C + land["dy"])
-        kids = copy.deepcopy(part.children)
-        if part.name == "BACKGROUND":
-            at = [k.name for k in kids].index("Sleep Dim")
-            for tag, fr, show in (("Portrait", port, (1.0, 0.0)), ("Landscape", land, (0.0, 1.0))):
-                if fr:
-                    vw, vh, vy = fr["vignette"]
-                    v = Layer(f"Vignette {tag}" if land else "Vignette", vw, vh, C, vy, img="vignette.png",
-                              opacity=show[0])
-                    if land:
-                        put(v, "opacity", *show)
-                    kids.insert(at, v)
-                    at += 1
-        frame.add(*kids)
-        for l, _ in walk(frame):
-            l.name, l.id = f"{l.name} {key}", f"{l.id}-{key.lower()}"
-        pair.append(duo_tree(f"{part.name} {key}").add(frame))
-    bg, fl = pair
-    duo = find(fl, f"Duo Zoom {key}")
-    duo.scale, duo.y = port["z"], port["feet"]
-    put(duo, "transform.scale.xy", port["z"], land and land["z"])
-    put(duo, "position.y", port["feet"], land and land["feet"])
-    if land:
-        find(bg, f"BG Pan {key}").land("position.x", C + LAND_PAN, C - LAND_PAN, C)
-    return bg, fl
-
-
 def build_screens():
     scene = (build_background(), build_floating())
-    return {"inner": for_screen(scene, "inner"), "cover": for_screen(scene, "cover")}
+    fr = {p: framing(p) for p in POSTURES}
+
+    def vignette(posture, name):
+        vw, vh, vy = fr[posture]["vignette"]
+        return Layer(name, vw, vh, C, vy, img="vignette.png")
+
+    screens, per = duo_screens(scene, {p: (f["F"], f["dy"]) for p, f in fr.items()},
+                               {"BACKGROUND": ("Sleep Dim", "Vignette", vignette)})
+    per("Duo Zoom", "transform.scale.xy", {p: f["z"] for p, f in fr.items()}, static=True)
+    per("Duo Zoom", "position.y", {p: f["feet"] for p, f in fr.items()}, static=True)
+    pan = (C + 140, C - 140, C)
+    per("BG Pan", "position.x", {"cover": pan, "inner_portrait": pan,
+                                 "inner_landscape": (C + LAND_PAN, C - LAND_PAN, C)})
+    return screens
 
 
 def main():

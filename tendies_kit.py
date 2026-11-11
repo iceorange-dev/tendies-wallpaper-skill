@@ -11,6 +11,7 @@ tendies_kit — shared engine for AirCard .tendies lock-screen wallpapers on the
   position per posture was measured from device screenshots (CLOCK)
 * preview renderer that composites BACKGROUND, clock and FLOATING per posture
 """
+import copy
 import hashlib
 import math
 import os
@@ -386,6 +387,14 @@ def anim_value(a, t):
     return vals[-1]
 
 
+def first_frame(values, duration, autoreverses=True, timing="easeInEaseOut", key_times=None, offset=0.0):
+    """The value a loop shows at its first frame. Wallpapers no longer loop (techniques H): a layout that was
+    drawn from loops' random phases keeps its look by standing still where they started (pass the same random
+    draws, in the same order, as the old .animate() call)."""
+    return anim_value(dict(values=values, duration=duration, autoreverses=autoreverses, timing=timing,
+                           keyTimes=key_times, offset=offset), 0.0)
+
+
 _cache = {}
 
 
@@ -400,16 +409,19 @@ def preview_img(key, w_px, h_px):
     return _cache[ck]
 
 
-def render(root, t, state_vals, k, only=None, opaque=True, tilt=(0.0, 0.0)):
-    """tilt: simulated device motion in -1..1 per axis, applied to every gyro (parallax) layer."""
+def render(root, t, state_vals, k, only=None, opaque=True, tilt=(0.0, 0.0), window=None):
+    """tilt: simulated device motion in -1..1 per axis, applied to every gyro (parallax) layer.
+    window: (x0, y0, x1, y1) in root units to render only that part (a Duo screen out of the large root)."""
     side = root.w                                    # S, or DUO_R for the Duo per-screen schema
-    W = int(side * k)
-    canvas = Image.new("RGBa", (W, W), (0, 0, 0, 255 if opaque else 0))
+    wx0, wy0, wx1, wy1 = window or (0.0, 0.0, side, side)
+    W, H = int(round((wx1 - wx0) * k)), int(round((wy1 - wy0) * k))
+    canvas = Image.new("RGBa", (W, H), (0, 0, 0, 255 if opaque else 0))
     prng = random.Random(7)
 
     def draw(l, M, op):
         vals = state_vals.get(l.name, {})
         x, y, o = vals.get("position.x", l.x), vals.get("position.y", l.y), vals.get("opacity", l.opacity)
+        o = min(1.0, max(0.0, o))                    # Core Animation clamps opacity (techniques E7)
         rot = vals.get("transform.rotation.z", l.rot)
         sc = vals.get("transform.scale.xy", l.scale)
         if l.anim:
@@ -437,18 +449,24 @@ def render(root, t, state_vals, k, only=None, opaque=True, tilt=(0.0, 0.0)):
                  np.array([[c * sc, -s * sc, 0], [s * sc, c * sc, 0], [0, 0, 1]]) @
                  np.array([[1, 0, -l.anchor[0] * l.w], [0, 1, -l.anchor[1] * l.h], [0, 0, 1]]))
         M = M @ local
-        to_canvas = np.array([[k, 0, 0], [0, -k, side * k], [0, 0, 1]])
+        to_canvas = np.array([[k, 0, -wx0 * k], [0, -k, wy1 * k], [0, 0, 1]])
         if l.img or l.color:
             if l.img:
                 im = preview_img(l.img, l.w * k * sc, l.h * k * sc)
+                iw, ih = im.size
+                px2local = np.array([[l.w / iw, 0, 0], [0, -l.h / ih, l.h], [0, 0, 1]])
+                A = to_canvas @ M @ px2local
+                inv = np.linalg.inv(A)
+                warped = im.transform((W, H), Image.AFFINE, tuple(inv[:2].flatten()), resample=Image.BILINEAR)
+                arr = np.asarray(warped).astype(np.float32) * op
             else:
-                im = Image.new("RGBa", (4, 4), tuple(int(255 * ch) for ch in l.color) + (255,))
-            iw, ih = im.size
-            px2local = np.array([[l.w / iw, 0, 0], [0, -l.h / ih, l.h], [0, 0, 1]])
-            A = to_canvas @ M @ px2local
-            inv = np.linalg.inv(A)
-            warped = im.transform((W, W), Image.AFFINE, tuple(inv[:2].flatten()), resample=Image.BILINEAR)
-            arr = np.asarray(warped).astype(np.float32) * op
+                # a solid colour is drawn as its outline: a stretched bitmap would blur a large layer's edges
+                quad = [tuple((to_canvas @ M @ np.array([px, py, 1.0]))[:2])
+                        for px, py in ((0, 0), (l.w, 0), (l.w, l.h), (0, l.h))]
+                cover = Image.new("L", (W, H), 0)
+                ImageDraw.Draw(cover).polygon(quad, fill=255)
+                cov = np.asarray(cover, np.float32)[..., None]
+                arr = np.concatenate([cov * ch for ch in l.color] + [cov], axis=2) * op
             base = np.asarray(canvas).astype(np.float32)
             out = arr + base * (1 - arr[..., 3:4] / 255)
             canvas.paste(Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGBa"))
@@ -632,10 +650,11 @@ def transition_strip(root, a, b, path, steps=6, k=0.5, views=("folded", "unfolde
 # iPhone Duo per-screen schema (iOS 27 `<wallpapers>`, as in Apple's Clownfish-V68; verified on device 2026-11-08)
 # ----------------------------------------------------------------------------
 # Each screen gets its own BACKGROUND / FLOATING pair, and every state value can differ by orientation
-# (portrait_* / landscape_*). One root unit is one device pixel, centred on the screen centre, in every posture
-# as long as the root is at least as wide as the landscape screen (2853): an 890-unit root came out scaled up
-# by 2853 / 2007 in landscape. Depth and gyro work as in the old schema; the AOD draws the clock on top.
-DUO_R = 3600.0                    # root side (units); content sits around DUO_C. Apple's is 6000.
+# (portrait_* / landscape_*). One root unit is one device pixel, centred on the screen centre, in every posture,
+# provided Wallpaper.plist says requiresLandscapeScaling = false (package() adds it): without that key the inner
+# display's landscape came out scaled up by 951 / 669, whatever the root's size (890, 3600 and 6000 were all
+# tried). Depth and gyro work as in the old schema; the AOD draws the clock on top.
+DUO_R = 6000.0                    # root side (units), as Apple's; content sits around DUO_C
 DUO_C = DUO_R / 2
 DUO_SCREENS = {                   # Apple's numbers, written into the style as they are
     "cover": dict(key="TWO", screenName="Cover Screen", idealWidth=466, idealHeight=678, pixelWidth=1398,
@@ -664,7 +683,8 @@ def duo_tree(name):
 
 def duo_caml(screens, allow_loops=False):
     """screens: {"inner": (background, floating), "cover": (background, floating)} built with duo_tree()."""
-    assert DUO_R >= 2853, "a root narrower than the landscape screen gets scaled up there (see DUO_R)"
+    need = max(s["pixelSquareWithParallax"] for s in DUO_SCREENS.values())
+    assert DUO_R >= need, f"a root under {need} units can come out scaled up in landscape (see DUO_R)"
     trees = [t for pair in screens.values() for t in pair]
     names = [l.name for t in trees for l, _ in walk(t)]
     dup = {n for n in names if names.count(n) > 1}
@@ -737,15 +757,15 @@ def duo_caml(screens, allow_loops=False):
 
 
 def duo_view(screens, posture, mix, k, clock_alpha=1.0, tilt=(0.0, 0.0), depth=True):
-    """One posture of the Duo schema: BACKGROUND, the user's clock, FLOATING (clock on top when depth=False)."""
+    """One posture of the Duo schema: BACKGROUND, the user's clock, FLOATING (clock on top when depth=False).
+    The mock clock is white, or dark where the wallpaper behind it is light (so that it shows in the preview)."""
     scr, land, (w, h), (cx0, cx1, cy0, cy1) = DUO_VIEWS[posture]
     bg, fl = screens[scr]
     out = []
     for tree in (bg, fl):
         root = Layer("Preview Root", DUO_R, DUO_R, DUO_C, DUO_C).add(tree)
-        img = render(root, 1.2, state_values(root, mix, land), k, opaque=tree is bg, tilt=tilt)
-        box = (int((DUO_C - w / 2) * k), int((DUO_C - h / 2) * k), int((DUO_C + w / 2) * k), int((DUO_C + h / 2) * k))
-        out.append(img.crop(box))
+        out.append(render(root, 1.2, state_values(root, mix, land), k, opaque=tree is bg, tilt=tilt,
+                          window=(DUO_C - w / 2, DUO_C - h / 2, DUO_C + w / 2, DUO_C + h / 2)))
     im, fl_im = out
 
     def clock(base):
@@ -755,9 +775,11 @@ def duo_view(screens, posture, mix, k, clock_alpha=1.0, tilt=(0.0, 0.0), depth=T
         glyphs = Image.new("L", (1000, 320), 0)
         ImageDraw.Draw(glyphs).text((10, 10), "9:41", font=ImageFont.truetype(CLOCK_FONT, 220), fill=255)
         glyphs = glyphs.crop(glyphs.getbbox()).resize((bw, bh), Image.LANCZOS)
-        ink = Image.new("RGBA", (bw, bh), (255, 255, 255, 255))
+        at = (int((w / 2 + cx0) * k), int((h / 2 - cy1) * k))
+        behind = np.asarray(base.convert("L").crop((at[0], at[1], at[0] + bw, at[1] + bh)))
+        ink = Image.new("RGBA", (bw, bh), (36, 38, 46, 255) if behind.mean() > 150 else (255, 255, 255, 255))
         ink.putalpha(glyphs.point(lambda v: int(v * 0.92 * clock_alpha)))
-        base.alpha_composite(ink, (int((w / 2 + cx0) * k), int((h / 2 - cy1) * k)))
+        base.alpha_composite(ink, at)
         return base
 
     if depth:
@@ -767,6 +789,79 @@ def duo_view(screens, posture, mix, k, clock_alpha=1.0, tilt=(0.0, 0.0), depth=T
         im.alpha_composite(fl_im)
         im = clock(im)
     return im.convert("RGB")
+
+
+STATIC_ATTR = {"transform.scale.xy": "scale", "position.x": "x", "position.y": "y", "opacity": "opacity",
+               "transform.rotation.z": "rot"}
+
+
+def duo_screens(scene, frames, extras=None):
+    """Lay a scene authored on the S square out on the Duo's screens: one renamed copy per screen (names end in
+    " ONE" on the inner display, " TWO" on the cover), each framed like a camera.
+
+    scene   (BACKGROUND, FLOATING) groups on the S square.
+    frames  {posture: (F, dy)} for every posture of DUO_VIEWS: scene point (x, y) shows at
+            (F * (x - C), dy + F * (y - C)) px from the screen centre. The inner display's landscape framing is
+            written as landscape values on the same frame layer.
+    extras  {part name: (before, name, make)}: make(posture, layer_name) returns a layer for that posture (a
+            vignette shaped to its screen, say), inserted before the layer called `before`. The inner display gets
+            one per orientation ("<name> Portrait" / "<name> Landscape"), switched by opacity.
+    Returns (screens, per). `screens` goes to duo_caml(). per(name, key_path, values, static=False) sets values
+    per posture on the copies of a layer: values maps posture -> a number or (lock, home, sleep); with static
+    the layer's own attribute follows the portrait lock value too."""
+    extras = extras or {}
+    screens = {}
+    for scr in ("inner", "cover"):
+        key = DUO_SCREENS[scr]["key"]
+        views = [p for p, v in DUO_VIEWS.items() if v[0] == scr]
+        port = frames[next(p for p in views if not DUO_VIEWS[p][1])]
+        land_p = next((p for p in views if DUO_VIEWS[p][1]), None)
+        land = frames[land_p] if land_p else None
+
+        def put(layer, key_path, portrait, landscape):     # constant within each orientation
+            layer.state(key_path, portrait, portrait, portrait)
+            if land:
+                layer.land(key_path, landscape, landscape, landscape)
+
+        pair = []
+        for part in scene:
+            frame = Layer(f"{part.name} Frame", S, S, DUO_C, DUO_C + port[1], scale=port[0])
+            put(frame, "transform.scale.xy", port[0], land and land[0])
+            put(frame, "position.y", DUO_C + port[1], land and DUO_C + land[1])
+            kids = copy.deepcopy(part.children)
+            if part.name in extras:
+                before, name, make = extras[part.name]
+                at = [k.name for k in kids].index(before)
+                for posture in views:
+                    tag = (" Landscape" if DUO_VIEWS[posture][1] else " Portrait") if land else ""
+                    lay = make(posture, name + tag)
+                    if land:
+                        show = (0.0, 1.0) if DUO_VIEWS[posture][1] else (1.0, 0.0)
+                        lay.opacity = show[0]
+                        put(lay, "opacity", *show)
+                    kids.insert(at, lay)
+                    at += 1
+            frame.add(*kids)
+            for l, _ in walk(frame):
+                l.name, l.id = f"{l.name} {key}", f"{l.id}-{key.lower()}"
+            pair.append(duo_tree(f"{part.name} {key}").add(frame))
+        screens[scr] = tuple(pair)
+
+    def per(name, key_path, values, static=False):
+        for scr, pair in screens.items():
+            key = DUO_SCREENS[scr]["key"]
+            layer = next(l for t in pair for l, _ in walk(t) if l.name == f"{name} {key}")
+            views = [p for p, v in DUO_VIEWS.items() if v[0] == scr]
+            vals = {p: values[p] if isinstance(values[p], tuple) else (values[p],) * 3 for p in views}
+            port = next(p for p in views if not DUO_VIEWS[p][1])
+            if static:
+                setattr(layer, STATIC_ATTR[key_path], vals[port][0])
+            layer.state(key_path, *vals[port])
+            for p in views:
+                if DUO_VIEWS[p][1]:
+                    layer.land(key_path, *vals[p])
+
+    return screens, per
 
 
 def make_duo_previews(screens, preview_dir, names, k=0.22):
@@ -879,6 +974,9 @@ def package(caml, out_path, build_dir):
     for key in sorted(pngs):
         h.update(key.encode())
         h.update(pngs[key])
+    duo = '<wallpapers type="NSArray">' in caml
+    if duo:
+        h.update(b"requiresLandscapeScaling=false")       # part of the package since 2026-11-12: a new identity
     digest = h.digest()
     ident = 100000 + int.from_bytes(digest[:4], "big") % 900000
     desc_uuid = str(uuid.UUID(bytes=digest[4:20], version=4)).upper()
@@ -910,6 +1008,11 @@ def package(caml, out_path, build_dir):
     wp["assets"]["lockAndHome"]["default"]["assetFileName"] = ca_name
     wp["identifier"] = ident
     wp["wantsDeviceMotion"] = True
+    if duo:
+        # Duo per-screen schema: Apple's own Clownfish-V68 Wallpaper.plist says so. Without the key the inner
+        # display's landscape came out scaled up by 951 / 669 (the portrait layout aspect-filled into the
+        # landscape screen) on top of the landscape_* values
+        wp["requiresLandscapeScaling"] = False
     wp["productTypes"] = list(dict.fromkeys(wp.get("productTypes", []) + PRODUCT_TYPES))
     files[f"{bundle}/Wallpaper.plist"] = binplist(wp)
 

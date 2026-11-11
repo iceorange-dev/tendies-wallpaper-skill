@@ -4,18 +4,24 @@
 
 Her official line 「んっしょ、んっしょ（着ぐるみ脱ぎ中）……じゃーん。驚いた？」 is staged as a show
 on the R.B.P. stage (the team's official backdrop is a theatre):
-  Lock   the indigo velvet curtain is closed; a spotlight finds a suspicious raccoon kigurumi swaying
-         on the boards (「もし校内で怪しい着ぐるみを見かけても、暖かい目で見守ろう」), dust drifting in
+  Lock   the indigo velvet curtain is closed; a spotlight finds a suspicious raccoon kigurumi standing
+         on the boards (「もし校内で怪しい着ぐるみを見かけても、暖かい目で見守ろう」), dust hanging in
          the beam, paw prints of her dogs, a playbill for her boss song "Titania" by the curtain
   Home   unlocking raises the show: the kigurumi pops into jelly stars, side lights come on and the
          curtain draws apart on Arisu herself, waiting behind it in her raccoon-hooded Shooter Dress —
          "じゃーん。驚いた？" — with her jelly-star bits and confetti. The set behind is cardboard props on strings, all from her
          profile: a moon and stars, the bear from her favourite picture books, and a hamburger
-         (「……お腹減った　ハンバーガーを要求する」)
+         (「……お腹減った　ハンバーガーを要求する」). As the curtain parts the kigurumi tips over and
+         pops, the props swing on their strings, the side lights sweep in and the confetti tumbles down
   Sleep  Always-On Display: the curtain is closed again and she naps on her fluffy dog in front of it,
-         kept below the clock
+         kept below the clock, the z's drifting up into place
 
 Lock and Home share the same stage and lighting, so the brightness only shifts with the curtain.
+
+Nothing loops: an idle wallpaper is a still frame, so the phone does no work while it sits there (techniques H).
+Everything that used to loop stands where its loop started, and the motion lives in the transitions above.
+iPhone Duo per-screen schema: every posture keeps the framing approved on the device (the old aspect-fill of
+the square), and the nap is sized per screen so her head stays just under that screen's clock.
 
 Sources (sources/arisu); the character art is Real-ESRGAN x4plus-anime 4x, resampled here to exactly @3x:
   raccoon_kigurumi_x4.png  story sprite Chara_00101210 (her raccoon kigurumi)
@@ -45,6 +51,10 @@ PREVIEW = os.path.join(OUT, "preview", "arisu")
 
 CHAR_TOP = 556.0   # Lock: head just under the user's folded clock; the depth effect lets it overlap
 AOD_TOP = 410.0    # Sleep: AOD has no depth, the clock bottom is at root y ~434 when folded
+# The Duo schema: each posture shows the square as the old aspect-fill did (F = the screen's long side / S),
+# and the nap is scaled per screen from the bottom edge (siesta_zoom) so her head ends AOD_GAP px under its clock
+FRAMES = {p: (max(DUO_VIEWS[p][2]) / S, 0.0) for p in DUO_VIEWS}
+AOD_GAP = 55.0
 
 FLOOR_Y = 190.0    # back edge of the stage boards, where the painted cloth starts
 CURTAIN_HEM = 140.0   # the curtain hangs over the boards in front of that: Arisu waits on the strip behind it
@@ -364,24 +374,23 @@ def build_background():
                             ("Prop Burger", "prop_burger.png", 72, 560), ("Prop Star 1", "prop_star1.png", 50, 140),
                             ("Prop Star 2", "prop_star2.png", 42, 370), ("Prop Star 3", "prop_star3.png", 36, 470),
                             ("Prop Star 4", "prop_star4.png", 46, 760), ("Prop Star 5", "prop_star5.png", 38, 840)):
-        props.add(hanging(name, key, w, x, 930))
+        prop = hanging(name, key, w, x, 930)                     # swings into place as the curtain parts
+        a = prop.rot + 2.5 * prop.swing
+        props.add(prop.state("transform.rotation.z", a, prop.rot, a))
 
     floor = image_layer("Stage Floor", "floor.png", w=1400, x=C, y=FLOOR_Y - 220 + 220 / 2 + 5, trilinear=True)
     pool_ = image_layer("Light Pool", "pool.png", w=560, x=C, y=MASCOT_FEET)
     pool_.state("opacity", 1.0, 0.55, 0.45)   # follows the centre spot dimming for the show
     paws = group("Paw Trail", opacity=0.8).state("opacity", 0.8, 0.8, 0.0)
-    step, period = 0.42, 9.0
-    for i in range(14):
+    for i in range(14):                             # her dogs trotted off to the right: older prints are fainter
         px = 70 + i * 54
         py = 70 + 8 * math.sin(i * 0.55) + (7 if i % 2 else -7)
-        p = Layer(f"Paw {i + 1}", 15, 15, px, py, img="paw.png", rot=math.radians(-90 + 8 * math.sin(i)))
-        p.animate("opacity", [0, 0.7, 0.7, 0, 0], period, autoreverses=False, timing="linear",
-                  key_times=[0, 0.03, 0.30, 0.50, 1], offset=(period - i * step) % period)
-        paws.add(p)
+        paws.add(Layer(f"Paw {i + 1}", 15, 15, px, py, img="paw.png", rot=math.radians(-90 + 8 * math.sin(i)),
+                       opacity=0.12 + 0.58 * i / 13))
     floor_par = group("Floor Parallax", kind="CATransformLayer").add(floor, pool_, paws)
     floor_par.parallax = 10
 
-    # the curtain: each panel slides on its track (state) and sways a little (animation)
+    # the curtain: each panel slides on its track, its hem trailing a little as it is drawn
     ch = CURTAIN_TOP + 10 - CURTAIN_HEM
     cy = CURTAIN_HEM + ch / 2
     curtains = group("Curtain Parallax", kind="CATransformLayer")
@@ -389,8 +398,7 @@ def build_background():
     for side, key, closed, opened in (("Left", "curtain_left.png", C + 8 - CURTAIN_W / 2, 176 - CURTAIN_W / 2),
                                       ("Right", "curtain_right.png", C - 8 + CURTAIN_W / 2, 714 + CURTAIN_W / 2)):
         panel = Layer(f"Curtain {side}", CURTAIN_W, ch, CURTAIN_W / 2, ch, img=key, anchor=(0.5, 1.0))
-        panel.animate("transform.rotation.z", [math.radians(-0.35), math.radians(0.35)],
-                      7.0 if side == "Left" else 8.3, offset=0 if side == "Left" else 2.5)
+        panel.state("transform.rotation.z", 0.0, math.radians(2.0 if side == "Left" else -2.0), 0.0)
         track = Layer(f"Curtain {side} Track", CURTAIN_W, ch, closed, cy).add(panel)
         track.state("position.x", closed, opened, closed)
         curtains.add(track)
@@ -400,27 +408,25 @@ def build_background():
         s = rng.uniform(10, 18)
         gx = rng.uniform(30, 860)
         g = Layer(f"Glint {i + 1}", s, s, gx, 925 - 220 * (0.60 + 0.26 * abs(math.sin(math.pi * ((gx + 255) / 1400 * 6 % 1)))) - 8,
-                  img="sparkle.png")
-        g.animate("opacity", [0.0, 0.0, 0.95, 0.0], rng.uniform(2.6, 4.2), autoreverses=False, timing="easeInEaseOut",
-                  key_times=[0, 0.55, 0.75, 1], offset=rng.uniform(0, 4))
-        glints.add(g)
+                  img="sparkle.png", opacity=0.4)
+        rng.uniform(2.6, 4.2), rng.uniform(0, 4)        # keep the scene's rng sequence (was a twinkle loop)
+        glints.add(g.state("opacity", 0.4, 0.9, 0.2))   # the fringe catches the stage lights
     drape_par = group("Valance Parallax", kind="CATransformLayer").add(drape, glints)
     drape_par.parallax = 12
 
     # lighting: one spot on the closed curtain, the stage lights join when the show starts
     spot = Layer("Spot Centre", 470, 1030, C, 1030, img="beam.png", anchor=(0.5, 1.0))
-    spot.animate("transform.rotation.z", [math.radians(-1.4), math.radians(1.4)], 9.0)
+    spot.state("transform.rotation.z", 0.0, math.radians(4), math.radians(-2))
     spot_fade = group("Spot Centre Fade").state("opacity", 1.0, 0.45, 0.35).add(spot)
     # the spot spilling onto the closed curtain behind the kigurumi
     wash = image_layer("Curtain Wash", "stage_glow.png", w=820, x=C, y=430, opacity=0.9)
     wash.state("opacity", 0.9, 0.0, 0.25)
     sides = group("Side Lights", opacity=0.0).state("opacity", 0.0, 0.5, 0.0)
     for name, x, deg in (("Side Light Left", 30, 19.0), ("Side Light Right", 860, -19.0)):
-        b = Layer(name, 420, 1120, x, 1040, img="beam.png", anchor=(0.5, 1.0), rot=math.radians(deg))
-        b.animate("transform.rotation.z", [math.radians(deg - 2.5), math.radians(deg + 2.5)], 6.5,
-                  offset=0 if x < C else 3.2)
-        sides.add(b)
-    motes = group("Beam Motes").state("opacity", 1.0, 0.6, 0.3)
+        rest = math.radians(deg - math.copysign(16, deg))       # they sweep in from pointing nearly down
+        b = Layer(name, 420, 1120, x, 1040, img="beam.png", anchor=(0.5, 1.0), rot=rest)
+        sides.add(b.state("transform.rotation.z", rest, math.radians(deg), rest))
+    motes = group("Beam Motes").state("opacity", 1.0, 0.6, 0.3).state("position.y", C, C + 25, C - 15)
     for i in range(16):
         y = rng.uniform(180, 900)
         half = 30 + (900 - y) / 900 * 190
@@ -448,7 +454,7 @@ MASCOT_FEET = 105.0   # the kigurumi stands on the boards, its head just reachin
 
 
 def build_mascot():
-    """Lock: a suspicious raccoon kigurumi swaying in the spotlight."""
+    """Lock: a suspicious raccoon kigurumi standing in the spotlight; it tips over as it pops."""
     top = CHAR_TOP - 12
     im, w, h = source("raccoon_kigurumi_x4.png", height_pt=top - MASCOT_FEET)
     k = asset("raccoon_kigurumi.png", im)
@@ -458,15 +464,12 @@ def build_mascot():
     kr = asset("raccoon_kigurumi_rim.png", rim_img)
     rim = Layer("Mascot Rim", (im.width + 2 * pad) * ppt, (im.height + 2 * pad) * ppt, w / 2, h / 2, img=kr,
                 opacity=0.5)
-    # mascot wobble: rocks from its feet
+    # it rocks from its feet as it pops
     wobble = Layer("Mascot Wobble", w, h, C, MASCOT_FEET, anchor=(0.5, 0.0))
     wobble.add(rim, Layer("Mascot Body", w, h, w / 2, h / 2, img=k, trilinear=True))
-    wobble.animate("transform.rotation.z", [math.radians(-3.0), math.radians(3.0)], 2.4)
-    hop = group("Mascot Hop").add(wobble)
-    hop.animate("position.y", [C, C, C + 7, C, C], 4.8, autoreverses=False, timing="linear",
-                key_times=[0, 0.42, 0.5, 0.58, 1])
+    wobble.state("transform.rotation.z", 0.0, math.radians(12), 0.0)
     shadow = Layer("Mascot Shadow", w * 1.05, 26, C, MASCOT_FEET + 4, img="shadow.png", opacity=0.75)
-    par = group("Mascot Parallax", kind="CATransformLayer").add(shadow, hop)
+    par = group("Mascot Parallax", kind="CATransformLayer").add(shadow, wobble)
     par.parallax = 12
     cy = MASCOT_FEET + h / 2
     # a second fade inside the first: the opacities multiply to (1 - u)^2 over the swipe, so the
@@ -494,17 +497,14 @@ def build_shooter():
     kk = SHOOTER_H / 600   # the bits' orbit was laid out around a 600 pt figure
     aura_img, pad = alpha_glow(im.getchannel("A"), AQUA, scale=0.2, dilate=5, blur=10, pad=36, strength=0.9)
     ka = asset("arisu_shooter_aura.png", aura_img)
-    aura = Layer("Shooter Aura", (im.width + 2 * pad) * ppt, (im.height + 2 * pad) * ppt, w / 2, h / 2, img=ka)
-    aura.animate("opacity", [0.25, 0.55], 3.0)
+    aura = Layer("Shooter Aura", (im.width + 2 * pad) * ppt, (im.height + 2 * pad) * ppt, w / 2, h / 2, img=ka,
+                 opacity=0.4)
     sway = Layer("Shooter Sway", w, h, cx, cy).add(aura, Layer("Shooter Body", w, h, w / 2, h / 2, img=k,
                                                                  trilinear=True))
-    sway.animate("transform.rotation.z", [math.radians(-1.2), math.radians(1.2)], 7.0)
-    float_ = group("Shooter Float").add(sway)
-    float_.animate("position.y", [C, C + 10], 5.2)
-    # the shadow stays on the boards while she floats
+    sway.state("transform.rotation.z", math.radians(-3), 0.0, math.radians(-3))   # she straightens, revealed
     shadow = Layer("Shooter Shadow", w * 0.75, 22, cx, SHOOTER_FEET - 2, img="shadow.png", opacity=0.55)
     # between the floor (10) and the curtain (12): she is upstage of the curtain line
-    char_par = group("Shooter Char Parallax", kind="CATransformLayer").add(shadow, float_)
+    char_par = group("Shooter Char Parallax", kind="CATransformLayer").add(shadow, sway)
     char_par.parallax = 11
 
     for key, rgb in (("jelly_aqua.png", AQUA), ("jelly_ice.png", ICE), ("jelly_lavender.png", LAVENDER)):
@@ -521,7 +521,10 @@ def build_shooter():
             ang += math.radians(55 if deg >= 90 else -55)
         x = cx + kk * rng.uniform(220, 330) * math.cos(ang)
         y = cy + kk * (40 + rng.uniform(160, 240) * math.sin(ang))
-        (front if i % 3 == 0 else back).add(floating_bit(f"Shooter Bit {i + 1}", keys[i % 3], rng.uniform(26, 46), x, y))
+        bit = floating_bit(f"Shooter Bit {i + 1}", keys[i % 3], rng.uniform(26, 46), x, y)
+        r = bit.spin.rot
+        bit.spin.state("transform.rotation.z", r - 3 * bit.turn, r, r - 3 * bit.turn)   # spinning as they spill
+        (front if i % 3 == 0 else back).add(bit)
 
     # already standing behind the closed curtain on Lock (fully covered, CURTAIN_HEM < her feet), so the
     # opening curtain reveals her crisply; she grows from her feet as it parts, staying planted on the boards
@@ -544,9 +547,10 @@ def build_show(mascot_centre):
         hy = 400 + rng.uniform(190, 320) * math.sin(ang)
         lx, ly = kx + rng.uniform(-40, 40), ky + rng.uniform(-30, 60)
         s = rng.uniform(30, 50)
-        spin = Layer(f"Burst Star {i + 1} Spin", s, s, s / 2, s / 2, img=keys[i % 3])
-        spin.animate("transform.rotation.z", [0.0, math.radians(rng.choice([-1, 1]) * rng.uniform(20, 40))],
-                     rng.uniform(3.5, 6.5), offset=rng.uniform(0, 4))
+        rot = first_frame([0.0, math.radians(rng.choice([-1, 1]) * rng.uniform(20, 40))], rng.uniform(3.5, 6.5),
+                          offset=rng.uniform(0, 4))
+        spin = Layer(f"Burst Star {i + 1} Spin", s, s, s / 2, s / 2, img=keys[i % 3], rot=rot)
+        spin.state("transform.rotation.z", rot - 3.0, rot, rot - 3.0)       # spinning as they burst out
         star = Layer(f"Burst Star {i + 1}", s, s, lx, ly, opacity=0.0).add(spin)
         star.state("position.x", lx, hx, lx).state("position.y", ly, hy, ly).state("opacity", 0.0, 0.85, 0.0)
         burst.add(star)
@@ -555,19 +559,19 @@ def build_show(mascot_centre):
     for i, rgb in enumerate(colours):
         asset(f"confetti{i + 1}.png", confetti(30, 54, rgb))
     rain = group("Confetti", opacity=0.0).state("opacity", 0.0, 1.0, 0.0)
-    for i in range(26):
+    for i in range(26):          # resting where their old fall began; on the unlock they tumble down into place
         piece = Layer(f"Confetti {i + 1}", rng.uniform(7, 10), rng.uniform(12, 17), rng.uniform(40, 850), C,
                       img=f"confetti{i % 4 + 1}.png")
         turns = rng.choice([-1, 1]) * 2 * math.pi
-        piece.animate("transform.rotation.z", [0.0, turns], rng.uniform(1.8, 3.6), autoreverses=False,
-                      timing="linear", offset=rng.uniform(0, 3))
-        sway = group(f"Confetti {i + 1} Sway").add(piece)
+        piece.rot = first_frame([0.0, turns], rng.uniform(1.8, 3.6), autoreverses=False, timing="linear",
+                                offset=rng.uniform(0, 3))
+        piece.state("transform.rotation.z", piece.rot - turns / 2, piece.rot, piece.rot - turns / 2)
         amp = rng.uniform(10, 24)
-        sway.animate("position.x", [C - amp, C + amp], rng.uniform(1.6, 2.8), offset=rng.uniform(0, 3))
-        fall = group(f"Confetti {i + 1} Fall").add(sway)
+        x = first_frame([C - amp, C + amp], rng.uniform(1.6, 2.8), offset=rng.uniform(0, 3))
+        sway = group(f"Confetti {i + 1} Sway", x=x).add(piece)
         dur = rng.uniform(7, 12)
-        fall.animate("position.y", [960, -40], dur, autoreverses=False, timing="linear", offset=rng.uniform(0, dur))
-        rain.add(fall)
+        y = first_frame([960, -40], dur, autoreverses=False, timing="linear", offset=rng.uniform(0, dur))
+        rain.add(group(f"Confetti {i + 1} Fall", y=y).add(sway).state("position.y", y + 260, y, y + 260))
     rain_par = group("Confetti Parallax", kind="CATransformLayer").add(rain)
     rain_par.parallax = 34
     return burst, rain_par
@@ -585,27 +589,25 @@ def build_siesta():
     kg = asset("arisu_siesta_glow.png", glow_img)
     glow = Layer("Siesta Glow", (im.width + 2 * pad) * ppt, (im.height + 2 * pad) * ppt, w / 2, h / 2, img=kg,
                  opacity=0.45)
-    breathe = Layer("Siesta Breathe", w, h, C, bottom, anchor=(0.5, 0.0))
-    breathe.add(glow, Layer("Siesta Body", w, h, w / 2, h / 2, img=k, trilinear=True))
-    breathe.animate("transform.scale", [1.0, 1.008], 4.8)
+    figure = Layer("Siesta Figure", w, h, C, bottom, anchor=(0.5, 0.0))
+    figure.add(glow, Layer("Siesta Body", w, h, w / 2, h / 2, img=k, trilinear=True))
 
     asset("z.png", glyph_z(84))
     zs = []
     head_x, head_y = C - w / 2 + 0.43 * w, top - 0.21 * h          # her head in the card art
-    for i in range(3):
+    for i in range(3):                      # a still trail of z's, drifting up into place as she dozes off
         s = 15 + i * 4
-        z = Layer(f"Zzz {i + 1}", s, s * 1.15, head_x + 70 + i * 16, head_y + 30 + i * 6, img="z.png")
-        z.animate("opacity", [0, 0.85, 0], 4.2, autoreverses=False, timing="linear", key_times=[0, 0.3, 1],
-                  offset=i * 1.4)
-        rise = group(f"Zzz {i + 1} Rise").add(z)
-        rise.animate("position.y", [C, C + 44], 4.2, autoreverses=False, timing="easeOut", offset=i * 1.4)
-        zs.append(rise)
+        z = Layer(f"Zzz {i + 1}", s, s * 1.15, head_x + 70 + i * 16, head_y + 30 + i * 6, img="z.png",
+                  opacity=(0.85, 0.65, 0.45)[i])
+        up = C + 10 * i
+        zs.append(group(f"Zzz {i + 1} Rise", y=up).add(z).state("position.y", up - 30, up - 30, up))
 
-    par = group("Siesta Parallax", kind="CATransformLayer").add(breathe, *zs)
+    par = group("Siesta Parallax", kind="CATransformLayer").add(figure, *zs)
     par.parallax = 6
     stage = group("Siesta Stage", y=C - 120, opacity=0.0)
     stage.state("opacity", 0.0, 0.0, 1.0).state("position.y", C - 120, C - 120, C)
-    return stage.add(par)
+    zoom = Layer("Siesta Zoom", S, S, C, 0, anchor=(0.5, 0.0))     # sized per screen from the bottom edge
+    return zoom.add(stage.add(par))
 
 
 def build_floating():
@@ -619,30 +621,42 @@ def build_floating():
     return root_fl, shooter
 
 
-def build_root():
-    root = Layer("Root Layer", S, S, C, C)
+def build_scene():
     # built in this order so the random layout of everything else stays as it was
     bg = build_background()
     fl, shooter = build_floating()
     # Arisu waits behind the curtain: home has no clock, so she needs no depth layer
     bg.children.insert(next(i for i, l in enumerate(bg.children) if l.name == "Curtain Parallax"), shooter)
-    return root.add(bg, fl)
+    return bg, fl
+
+
+def siesta_zoom(posture):
+    """The nap's scale from the bottom edge that puts her head AOD_GAP px under this screen's clock."""
+    F, dy = FRAMES[posture]
+    return (C + (DUO_VIEWS[posture][3][2] - AOD_GAP - dy) / F) / AOD_TOP
+
+
+def build_screens():
+    screens, per = duo_screens(build_scene(), FRAMES)
+    per("Siesta Zoom", "transform.scale.xy", {p: siesta_zoom(p) for p in FRAMES}, static=True)
+    return screens
 
 
 def main():
-    root = build_root()
-    caml = build_caml(root, allow_loops=True)  # still loops: not yet moved into transitions (techniques H)
+    screens = build_screens()
+    caml = duo_caml(screens)
     out, ident, desc_uuid, ca_name = package(caml, os.path.join(OUT, f"{OUT_NAME}.tendies"), BUILD)
 
     mem = sum(im.width * im.height * 4 for im in ASSETS.values()) / 2 ** 20
-    print(f"layers: {sum(1 for _ in walk(root))}, assets: {len(ASSETS)}, decoded ~{mem:.0f} MB")
+    layers = sum(1 for pair in screens.values() for t in pair for _ in walk(t))
+    print(f"layers: {layers}, assets: {len(ASSETS)}, decoded ~{mem:.0f} MB, looping animations: 0")
     print(f"tendies: {out} ({os.path.getsize(out) / 2 ** 20:.1f} MB)")
     print(f"identity: {ident}  descriptor: {desc_uuid}  CA bundle: {ca_name}")
     for key, im in sorted(ASSETS.items()):
         print(f"  {key:28s} {im.width}x{im.height}")
     if "--no-preview" not in sys.argv:
-        make_previews(root, PREVIEW, {"lock": "鎖定 可疑的浣熊布偶裝（開演前）", "home": "主畫面 有栖（開幕・じゃーん）",
-                                      "sleep": "待機 AOD・散場後的午睡"})
+        make_duo_previews(screens, PREVIEW, {"lock": "鎖定 可疑的布偶裝", "home": "主畫面 有栖・じゃーん",
+                                             "sleep": "待機 AOD・午睡"})
         print(f"previews: {PREVIEW}")
 
 

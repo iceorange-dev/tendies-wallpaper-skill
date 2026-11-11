@@ -5,12 +5,19 @@
 From her profile and lines: she cannot help hugging people (癖: ぎゅっと抱きつく), her trophy asks
 「千夏と毎日ぎゅーーってしよ？」, and her card 【SR+】大好き☆アタック+ is exactly that: a running leap into a hug.
 The wallpaper is one school day at the 奏坂学園 courtyard under its great tree.
-  Lock   morning: close up in the courtyard she waves at you — "おはよー！" — blinking now and then;
-         leaves drift down from the great tree, whose crown glitters
+  Lock   morning: close up in the courtyard she waves at you — "おはよー！"; leaves hang in the air under the
+         great tree, whose crown glitters
   Home   unlocking is the hug: 大好き☆アタック! she leaps at you with her arms up, the camera's focus pulls
-         onto her (the courtyard goes soft) and yellow ☆ burst out around her
+         onto her (the courtyard goes soft), yellow ☆ burst out around her, spinning, and the leaves are blown
+         away from her
   Sleep  Always-On Display: the same courtyard at night under the stars, the great tree glittering, the clock
-         tower lit; she holds her hand up and smiles ^^ — "おやすみ～！" — wholly below the clock
+         tower lit; she holds her hand up and smiles ^^ — "おやすみ～！" — wholly below the clock, while the
+         leaves drift down and fade
+
+Nothing loops: an idle wallpaper is a still frame, so the phone does no work while it sits there (techniques H).
+Everything that used to loop stands where its loop started, and the motion lives in the transitions above.
+iPhone Duo per-screen schema: every posture keeps the framing approved on the device (the old aspect-fill of
+the square), and the AOD girl is sized per screen so her raised hand stays just under that screen's clock.
 
 Everything drawn is official ONGEKI art from the game data; code only adds light, blur, tint and motion:
   story sprite Chara_00101401 (uniform) with its faces A_00 / A_01 (eyes open / closed: the game's own blink)
@@ -50,14 +57,20 @@ CROP = 0.80                # rows below this fraction of the sprite never show, 
                            # (bow ~542, waving hand ~581: her head is in front of the clock's lower edge)
 SLEEP_TOP = 404.0          # AOD: her raised hand stays under the folded clock bottom (~434), no depth there
 SLEEP_SCALE = (SLEEP_TOP - FEET) / GIRL_H
+# The Duo schema: each posture shows the square as the old aspect-fill did (F = the screen's long side / S),
+# and the AOD girl is sized per screen (sleep_scale) so her hand ends AOD_GAP px under that screen's clock
+FRAMES = {p: (max(DUO_VIEWS[p][2]) / S, 0.0) for p in DUO_VIEWS}
+AOD_GAP = 70.0
 HUG_H, HUG_BASE = 740.0, -80.0           # Home: the leap, closer than the wave, feet below the screen edge
 SCHOOL_W, SCHOOL_BOTTOM = 960.0, -40.0   # chapter background layers, arranged for the square root
 TREE_W, TREE_BOTTOM = 1000.0, 250.0
 SKY_W, SKY_BOTTOM = 1540.0, 300.0
 YELLOW = (255, 212, 39)                  # ChinatsuYellow #ffd427
 HER = (C, 330.0)                         # centre of the leap, where the ☆ burst from
+FACE = (445.0, 455.0, 135.0, 125.0)      # Lock: her face and hair (centre, radii); still leaves in front keep off it
 
 rng = random.Random(20180822)            # Chinatsu's birthday
+gust_rng = random.Random(20180823)       # the leaves' gust: its own stream, so the scene's draws stay as they were
 
 
 def src(name):
@@ -130,20 +143,34 @@ def yellow_star(px_):
     return resize_premul(pad, (px_, px_))
 
 
-def drifting_leaf(i, key, size, x0, dur_rng, sway_rng, alpha=1.0):
-    """Falls (position.y) -> sways (position.x) -> tumbles (rotation): one animation per layer (techniques C3)."""
+def drifting_leaf(i, key, size, x0, dur_rng, sway_rng, alpha=1.0, clear=None):
+    """A leaf hanging in the air where its old fall / sway / tumble loops started (the same random draws).
+    Unlocking blows it away from her leap (techniques §T); on the way to the AOD it drifts down as it fades.
+    clear: an ellipse (cx, cy, rx, ry) the leaf is pushed out of. Falling, a leaf only crossed her face; held
+    still, it would sit on it."""
     iw, ih = ASSETS[key].size
     w, h = (size, size * ih / iw) if iw >= ih else (size * iw / ih, size)
-    leaf = Layer(f"Leaf {i} Tumble", w, h, C, C, img=key, opacity=alpha)
-    leaf.animate("transform.rotation.z", [0.0, rng.choice([-1, 1]) * rng.uniform(3, 6)], rng.uniform(4, 8),
-                 autoreverses=False, timing="linear", offset=rng.uniform(0, 4))
-    sway = group(f"Leaf {i} Sway", x=x0).add(leaf)
+    rot = first_frame([0.0, rng.choice([-1, 1]) * rng.uniform(3, 6)], rng.uniform(4, 8), autoreverses=False,
+                      timing="linear", offset=rng.uniform(0, 4))
+    leaf = Layer(f"Leaf {i} Tumble", w, h, C, C, img=key, opacity=alpha, rot=rot)
     amp = rng.uniform(*sway_rng)
-    sway.animate("position.x", [x0 - amp, x0 + amp], rng.uniform(2.4, 4.0), offset=rng.uniform(0, 3))
-    fall = group(f"Leaf {i} Fall").add(sway)
+    x = first_frame([x0 - amp, x0 + amp], rng.uniform(2.4, 4.0), offset=rng.uniform(0, 3))
     dur = rng.uniform(*dur_rng)
-    fall.animate("position.y", [C + 520, C - 520], dur, autoreverses=False, timing="linear", offset=rng.uniform(0, dur))
-    return fall
+    y = first_frame([C + 520, C - 520], dur, autoreverses=False, timing="linear", offset=rng.uniform(0, dur))
+    if clear:
+        cx, cy, rx, ry = clear
+        e = math.hypot((x - cx) / rx, (y - cy) / ry)
+        if e < 1:
+            k = 1.1 / max(e, 0.05)
+            x, y = cx + (x - cx) * k, cy + (y - cy) * k
+    dx, dy = x - HER[0], y - HER[1]
+    d = max(math.hypot(dx, dy), 1.0)
+    gust = gust_rng.uniform(90, 150)
+    turn = gust_rng.choice([-1, 1]) * gust_rng.uniform(1.5, 3.0)
+    leaf.state("transform.rotation.z", rot, rot + turn, rot + turn * 0.3)
+    sway = group(f"Leaf {i} Sway", x=x).add(leaf).state("position.x", x, x + dx / d * gust, x)
+    fall = group(f"Leaf {i} Fall", y=y).add(sway)
+    return fall.state("position.y", y, y + dy / d * gust + 40, y - 120)
 
 
 # ----------------------------------------------------------------------------
@@ -162,9 +189,9 @@ def build_background():
     school_h = SCHOOL_W * school.height / school.width
     sky_y, tree_y, school_y = SKY_BOTTOM + sky_h / 2, TREE_BOTTOM + tree_h / 2, SCHOOL_BOTTOM + school_h / 2
 
-    # --- sky: day (drifting clouds) / night (gradient + the game's star field + twinkles + moon) ----------
-    day_sky = place("Sky Day", "sky_day.png", sky, SKY_W, C, sky_y, ppt=1.6)
-    day_sky.animate("position.x", [C - 22, C + 22], 60.0)
+    # --- sky: day (clouds that move on with the unlock) / night (gradient + the game's stars + moon) -------
+    day_sky = place("Sky Day", "sky_day.png", sky, SKY_W, C - 22, sky_y, ppt=1.6)
+    day_sky.state("position.x", C - 22, C + 10, C - 22)
     night = group("Night Sky", opacity=0.0).state("opacity", 0.0, 0.0, 1.0)
     night.add(image_layer("Night Gradient", asset("night_grad.png", vgrad(16, 256, [(0, (5, 9, 30)), (0.65, (14, 22, 58)),
                                                                                 (1, (32, 42, 88))])),
@@ -175,8 +202,8 @@ def build_background():
     for i in range(10):
         s = rng.uniform(10, 20)
         t = Layer(f"Twinkle {i + 1}", s, s, rng.uniform(150, 740), rng.uniform(520, 880), img="twinkle.png")
-        t.animate("opacity", [0.1, 1.0, 0.1], rng.uniform(2.4, 4.6), autoreverses=False, key_times=[0, 0.5, 1],
-                  offset=rng.uniform(0, 4))
+        t.opacity = first_frame([0.1, 1.0, 0.1], rng.uniform(2.4, 4.6), autoreverses=False, key_times=[0, 0.5, 1],
+                                offset=rng.uniform(0, 4))
         night.add(t)
     asset("moon_glow.png", soft_glow(256, (226, 232, 255), 0.55))
     asset("moon_disc.png", soft_glow(128, (255, 252, 236), 1.0))
@@ -191,8 +218,7 @@ def build_background():
                        opacity=0.0)
     tree_night.state("opacity", 0.0, 0.0, 1.0)
     glitter = glow_alpha(ongeki.chapter_bg(9903401, 4), gain=2.0)
-    sparkle = place("Crown Glitter", "crown_glitter.png", glitter, TREE_W, C, tree_y, ppt=1.46)
-    sparkle.animate("opacity", [0.55, 1.0], 3.2)
+    sparkle = place("Crown Glitter", "crown_glitter.png", glitter, TREE_W, C, tree_y, ppt=1.46, opacity=0.78)
     sparkle_g = group("Crown Glitter Level", opacity=0.3).state("opacity", 0.3, 0.3, 1.0).add(sparkle)
     tree_par = group("Tree Parallax", kind="CATransformLayer").add(tree_day, tree_night, sparkle_g)
     tree_par.parallax = 6
@@ -212,13 +238,12 @@ def build_background():
     school_par = group("School Parallax", kind="CATransformLayer").add(school_day, school_night, tower_light)
     school_par.parallax = 9
 
-    # --- morning light through the great tree's crown (komorebi), swaying slowly ---------------------------
+    # --- morning light through the great tree's crown (komorebi), swinging a little as she leaps -----------
     asset("beam.png", art.beam(390, 1350, spread=0.45, rgb=(255, 246, 214)))
     beams = group("Komorebi", opacity=0.9).state("opacity", 0.9, 0.6, 0.0)
     for i, (x, deg, op) in enumerate(((290, -14, 0.35), (520, 5, 0.45), (690, 17, 0.3))):
         b = Layer(f"Beam {i + 1}", 260, 900, x, 880, img="beam.png", anchor=(0.5, 1.0), rot=math.radians(deg), opacity=op)
-        b.animate("transform.rotation.z", [math.radians(deg - 2.5), math.radians(deg + 2.5)], 9.0 + i * 2.3, offset=i * 1.7)
-        beams.add(b)
+        beams.add(b.state("transform.rotation.z", math.radians(deg), math.radians(deg + 3), math.radians(deg)))
     beam_par = group("Komorebi Parallax", kind="CATransformLayer").add(beams)
     beam_par.parallax = 7
 
@@ -296,9 +321,8 @@ def face_patch(face_x4, name):
 
 
 def build_girl():
-    """Lock: the story sprite in a half-length shot, waving good morning and blinking with the game's own
-    closed-eye face. Sleep: the same girl, smaller and moonlit, her hand raised still and smiling ^^ —
-    "おやすみ～！" (the game's B_00 smile, made to be held; the blink frame would look frozen mid-blink)."""
+    """Lock: the story sprite in a half-length shot, waving good morning. Sleep: the same girl, smaller and
+    moonlit, her hand raised still and smiling ^^ — "おやすみ～！" (the game's B_00 smile, made to be held)."""
     # the body carries the ^^ smile (what the AOD shows); on Lock the open face is laid over it and on the way
     # to the AOD it fades as (1-u)^5: she smiles as soon as the screen starts to dim, never half-and-half
     body = src("story_uniform_B00_x4.png")
@@ -319,39 +343,30 @@ def build_girl():
     night_b = Layer("Girl Body Night", w, ch, w / 2, GIRL_H - ch / 2,
                     img=asset("girl_night.png", sized(moon(rest), w, 2.0)), opacity=0.0)
     night_b.state("opacity", 0.0, 0.0, 1.0)
-    # the waving hand: cuff and hand cut from the same sprite, swung from the wrist in little bursts (Lock).
-    # On the AOD, where frames are few, the hand is held still: the night hand sits outside the waving layer
+    # the raised hand: cuff and hand cut from the same sprite (it waved in the looping version); the AOD shows
+    # the night hand in its place
     hw, hh = (box[2] - box[0]) * k, (box[3] - box[1]) * k
     hand_at = dict(x=pivot[0] * k, y=GIRL_H - pivot[1] * k,
                    anchor=((pivot[0] - box[0]) / (box[2] - box[0]), 1 - (pivot[1] - box[1]) / (box[3] - box[1])))
     wave = Layer("Hand Wave", hw, hh, **hand_at)
     hand_d = Layer("Hand", hw, hh, hw / 2, hh / 2, img=asset("hand.png", sized(hand, hw)), trilinear=True)
+    # the hand stays still. A swing tied to the swipe can only go one way (a state value is linear), and one
+    # stroke does not read as waving: the user saw it and preferred no motion
     wave.state("opacity", 1.0, 1.0, 0.0)
-    r = math.radians
-    wave.add(hand_d).animate("transform.rotation.z", [0, 0, r(9), r(-7), r(9), r(-7), r(5), 0, 0], 5.5,
-                             autoreverses=False, key_times=[0, 0.52, 0.58, 0.64, 0.70, 0.76, 0.82, 0.88, 1])
+    wave.add(hand_d)
     hand_n = Layer("Hand Night", hw, hh, img=asset("hand_night.png", sized(moon(hand), hw, 2.0)), opacity=0.0, **hand_at)
     hand_n.state("opacity", 0.0, 0.0, 1.0)
 
     open_face, obox = face_patch(src("story_uniform_A00_x4.png"), "smile")   # where the open face and the smile differ
     eyes = chained("Open Face", (1.0, 1.0, 0.0), 5, face_layer("Open Face", "open_face.png", open_face, obox))
-    blink, bbox = face_patch(src("story_uniform_A01_x4.png"), "blink")
-    blinks = group("Blinks").state("opacity", 1.0, 1.0, 0.0)
-    for i, (dur, off) in enumerate(((4.3, 0.0), (11.7, 2.9))):     # two rhythms: now and then a double blink
-        b = face_layer(f"Blink {i + 1}", "blink.png", blink, bbox, opacity=0.0)
-        b.animate("opacity", [0, 0, 1, 1, 0], dur, autoreverses=False, timing="linear",
-                  key_times=[0, 0.955, 0.962, 0.992, 1.0], offset=off)
-        blinks.add(b)
-    # the whole figure sways from her feet, far below the screen edge
-    sway = Layer("Girl Sway", w, GIRL_H, C, FEET, anchor=(0.5, 0.0)).add(day_b, night_b, eyes, wave, hand_n, blinks)
-    sway.animate("transform.rotation.z", [math.radians(-0.6), math.radians(0.6)], 5.6)
-    breathe = Layer("Girl Breathe", S, S, C, FEET, anchor=(0.5, FEET / S)).add(sway)
-    breathe.animate("transform.scale", [1.0, 1.005], 4.2)
-    par = group("Girl Parallax", kind="CATransformLayer").add(breathe)
+    # the whole figure leans from her feet, far below the screen edge, as she springs off
+    sway = Layer("Girl Sway", w, GIRL_H, C, FEET, anchor=(0.5, 0.0)).add(day_b, night_b, eyes, wave, hand_n)
+    sway.state("transform.rotation.z", 0.0, math.radians(-3), 0.0)
+    par = group("Girl Parallax", kind="CATransformLayer").add(sway)
     par.parallax = 12
     # Home: she springs off (rising, growing) and gives way to the leap; Sleep: smaller, below the clock
     stage = Layer("Girl Stage", S, S, C, FEET, anchor=(0.5, FEET / S))
-    stage.state("position.y", FEET, FEET + 40, FEET).state("transform.scale.xy", 1.0, 1.15, SLEEP_SCALE)
+    stage.state("position.y", FEET, FEET + 40, FEET).state("transform.scale.xy", 1.0, 1.15, SLEEP_SCALE)  # per screen: build_screens
     # (1-u)^3: she is mostly gone before the leap is half in, so the two poses barely overlap
     return stage.add(chained("Girl", (1.0, 0.0, 1.0), 3, par))
 
@@ -368,9 +383,7 @@ def build_hug():
     k = HUG_H / card.height
     rim = Layer("Leap Rim", (card.width + 2 * pad) * k, (card.height + 2 * pad) * k, C, HUG_BASE + HUG_H / 2,
                 img=asset("leap_rim.png", rim_img), opacity=0.5)
-    hover = group("Leap Hover").add(rim, leap)
-    hover.animate("position.y", [C, C + 10], 2.6)
-    par = group("Leap Parallax", kind="CATransformLayer").add(hover)
+    par = group("Leap Parallax", kind="CATransformLayer").add(rim, leap)
     par.parallax = 14
     stage = Layer("Leap Stage", S, S, C, HUG_BASE - 40, anchor=(0.5, HUG_BASE / S), opacity=0.0, scale=0.85)
     stage.state("opacity", 0.0, 1.0, 0.0).state("transform.scale.xy", 0.85, 1.0, 0.85) \
@@ -387,9 +400,11 @@ def build_hug():
             if not (300 < hx < 590 and 360 < hy < 600):
                 break
         s = rng.uniform(26, 46)
-        spin = Layer(f"Star {i + 1} Spin", s, s, s / 2, s / 2, img="star.png", rot=rng.uniform(0, 6.28))
-        spin.animate("transform.rotation.z", [spin.rot, spin.rot + rng.choice([-1, 1]) * rng.uniform(0.3, 0.7)],
-                     rng.uniform(3.5, 6.5), offset=rng.uniform(0, 4))
+        r0 = rng.uniform(0, 6.28)
+        rot = first_frame([r0, r0 + rng.choice([-1, 1]) * rng.uniform(0.3, 0.7)], rng.uniform(3.5, 6.5),
+                          offset=rng.uniform(0, 4))
+        spin = Layer(f"Star {i + 1} Spin", s, s, s / 2, s / 2, img="star.png", rot=rot)
+        spin.state("transform.rotation.z", rot - 2.5, rot, rot - 2.5)       # they spin as they burst out
         twinkle = Layer(f"Star {i + 1}", s, s, HER[0] + rng.uniform(-30, 30), HER[1] + rng.uniform(-20, 40), opacity=0.0)
         twinkle.add(spin)
         twinkle.state("position.x", twinkle.x, hx, twinkle.x).state("position.y", twinkle.y, hy, twinkle.y) \
@@ -402,7 +417,8 @@ def build_near_leaves():
     near = [asset(f"leaf{i + 1}.png", l) for i, l in enumerate(leaves("FX_mm_leaf_01"))]
     g = group("Near Leaves", opacity=0.9).state("opacity", 0.9, 1.0, 0.0)
     for i in range(8):
-        g.add(drifting_leaf(f"N{i + 1}", near[i % len(near)], rng.uniform(18, 28), rng.uniform(60, 830), (9, 15), (18, 40)))
+        g.add(drifting_leaf(f"N{i + 1}", near[i % len(near)], rng.uniform(18, 28), rng.uniform(60, 830), (9, 15), (18, 40),
+                            clear=FACE))
     par = group("Near Leaf Parallax", kind="CATransformLayer").add(g)
     par.parallax = 22
     return par
@@ -416,24 +432,34 @@ def build_floating():
     return root_fl
 
 
-def build_root():
-    return Layer("Root Layer", S, S, C, C).add(build_background(), build_floating())
+def sleep_scale(posture):
+    """The AOD girl's scale (from her feet) that puts her raised hand AOD_GAP px under this screen's clock."""
+    F, dy = FRAMES[posture]
+    hand = C + (DUO_VIEWS[posture][3][2] - AOD_GAP - dy) / F
+    return (hand - FEET) / GIRL_H
+
+
+def build_screens():
+    screens, per = duo_screens((build_background(), build_floating()), FRAMES)
+    per("Girl Stage", "transform.scale.xy", {p: (1.0, 1.15, sleep_scale(p)) for p in FRAMES})
+    return screens
 
 
 def main():
-    root = build_root()
-    caml = build_caml(root, allow_loops=True)  # still loops: not yet moved into transitions (techniques H)
+    screens = build_screens()
+    caml = duo_caml(screens)
     out, ident, desc_uuid, ca_name = package(caml, os.path.join(OUT, f"{OUT_NAME}.tendies"), BUILD)
 
     mem = sum(im.width * im.height * 4 for im in ASSETS.values()) / 2 ** 20
-    print(f"layers: {sum(1 for _ in walk(root))}, assets: {len(ASSETS)}, decoded ~{mem:.0f} MB")
+    layers = sum(1 for pair in screens.values() for t in pair for _ in walk(t))
+    print(f"layers: {layers}, assets: {len(ASSETS)}, decoded ~{mem:.0f} MB, looping animations: 0")
     print(f"tendies: {out} ({os.path.getsize(out) / 2 ** 20:.1f} MB)")
     print(f"identity: {ident}  descriptor: {desc_uuid}  CA bundle: {ca_name}")
     big = sorted(ASSETS.items(), key=lambda kv: -kv[1].width * kv[1].height)[:6]
     print("largest:", ", ".join(f"{k} {im.width}x{im.height}" for k, im in big))
     if "--no-preview" not in sys.argv:
-        make_previews(root, PREVIEW, {"lock": "鎖定 おはよー！（學園中庭）", "home": "主畫面 大好き☆アタック！",
-                                      "sleep": "待機 AOD・おやすみ～"})
+        make_duo_previews(screens, PREVIEW, {"lock": "鎖定 おはよー！", "home": "主畫面 大好き☆アタック！",
+                                             "sleep": "待機 AOD・おやすみ～"})
         print(f"previews: {PREVIEW}")
 
 

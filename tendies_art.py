@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from tendies_kit import ASSETS, C, PPT, Layer, group, load, resize_premul, trim
+from tendies_kit import ASSETS, C, PPT, Layer, first_frame, group, load, resize_premul, trim
 
 WARM = (255, 238, 205)
 
@@ -192,28 +192,33 @@ def confetti(px_w, px_h, rgb):
 # motion helpers (take the caller's rng so each wallpaper keeps its own layout)
 # ----------------------------------------------------------------------------
 def floating_bit(rng, name, key, size, x, y, alpha_lo=0.6, drift=(8, 24)):
-    """Drift (position) -> spin (rotation) -> twinkle (opacity), one animation per layer."""
+    """A small bit hanging still in the air: drift group -> spin -> image. It stands where its old drift / spin /
+    twinkle loops started, with the same random draws, so a layout built on them stays put (wallpapers no longer
+    loop, techniques H). `.spin` is its spin layer and `.turn` the angle its loop turned through, for transitions."""
     r0 = rng.uniform(-25, 25)
-    img = Layer(name, size, size, size / 2, size / 2, img=key)
-    img.animate("opacity", [alpha_lo, 1.0], rng.uniform(1.8, 3.4), offset=rng.uniform(0, 3))
-    spin = Layer(f"{name} Spin", size, size, x, y, rot=math.radians(r0)).add(img)
+    op = first_frame([alpha_lo, 1.0], rng.uniform(1.8, 3.4), offset=rng.uniform(0, 3))
+    img = Layer(name, size, size, size / 2, size / 2, img=key, opacity=op)
     d = rng.uniform(14, 30) * rng.choice([-1, 1])
-    spin.animate("transform.rotation.z", [math.radians(r0), math.radians(r0 + d)], rng.uniform(4.5, 8),
-                 offset=rng.uniform(0, 4))
-    mover = group(f"{name} Drift").add(spin)
+    rot = first_frame([math.radians(r0), math.radians(r0 + d)], rng.uniform(4.5, 8), offset=rng.uniform(0, 4))
+    spin = Layer(f"{name} Spin", size, size, x, y, rot=rot).add(img)
     a1, a2 = rng.uniform(0, 2 * math.pi), rng.uniform(0, 2 * math.pi)
     m1, m2 = rng.uniform(drift[0], drift[1] * 0.75), rng.uniform(drift[0] * 1.5, drift[1])
-    mover.animate("position", [(C, C), (C + m1 * math.cos(a1), C + m1 * math.sin(a1)),
-                               (C + m2 * math.cos(a2), C + m2 * math.sin(a2))],
-                  rng.uniform(5.5, 9.5), offset=rng.uniform(0, 6))
+    px, py = first_frame([(C, C), (C + m1 * math.cos(a1), C + m1 * math.sin(a1)),
+                          (C + m2 * math.cos(a2), C + m2 * math.sin(a2))], rng.uniform(5.5, 9.5),
+                         offset=rng.uniform(0, 6))
+    mover = group(f"{name} Drift", x=px, y=py).add(spin)
+    mover.spin, mover.turn = spin, math.radians(d)
     return mover
 
 
 def hanging(rng, name, key, w_pt, x, top):
-    """A prop on a thread, swinging like a pendulum from the top of its thread (thread drawn in the image)."""
+    """A prop on a thread (drawn in the image), anchored at the thread's top. It hangs still at the angle its old
+    pendulum loop started from (same random draws); `.swing` is that loop's amplitude, for a transition that
+    sets it swinging."""
     iw, ih = ASSETS[key].size
     h_pt = w_pt * ih / iw
-    p = Layer(name, w_pt, h_pt, x, top, img=key, anchor=(0.5, 1.0))
     amp = math.radians(rng.uniform(3, 6))
-    p.animate("transform.rotation.z", [-amp, amp], rng.uniform(2.8, 4.4), offset=rng.uniform(0, 4))
+    rot = first_frame([-amp, amp], rng.uniform(2.8, 4.4), offset=rng.uniform(0, 4))
+    p = Layer(name, w_pt, h_pt, x, top, img=key, anchor=(0.5, 1.0), rot=rot)
+    p.swing = amp
     return p

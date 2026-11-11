@@ -310,4 +310,7 @@ Selector 的星雨：
 | `asset(name, PIL.Image)` | 登記 `assets/name` |
 | `build_caml(root)` → `package(caml, out, build_dir)` | 輸出 `(out, ident, desc_uuid, ca_name)`；有循環動畫時報錯，除非 `allow_loops=True` |
 | `duo_tree(name)`、`duo_caml({"inner": (bg, fl), "cover": (bg, fl)})` | Duo 分螢幕格式（§6.1） |
+| `duo_screens(scene, frames, extras)` → `(screens, per)` | 把 S×S 的場景複製到每個螢幕並取景；`per(name, kp, {姿態: 值或 (lock, home, sleep)})` 設定各姿態不同的數值 |
+| `first_frame(values, duration, ...)` | 一個循環動畫在第 0 秒的值：把舊的循環改成靜止時用，版面不會變 |
 | `make_duo_previews(screens, dir, names)` | Duo 三種姿態的總覽與轉場分解圖 |
+| `package()` | 遇到 Duo 格式會在 `Wallpaper.plist` 寫入 `requiresLandscapeScaling = false`（techniques.md §F4） |

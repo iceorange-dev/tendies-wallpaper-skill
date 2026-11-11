@@ -7,7 +7,9 @@ Lay the phone flat on the Home Screen with the wallpaper applied; a foreground a
 (gyro) raises the numbers. Needs:
   * pymobiledevice3 (found via $PMD3, PATH, or tools/pmd3 under the working directory)
   * Developer Mode on the phone (iOS 27 mounts the developer disk image by itself)
-  * `pymobiledevice3 remote tunneld` running with administrator rights (iOS 17 and later)
+  * iOS 17 and later: a tunnel to the phone. A running `pymobiledevice3 remote tunneld` (administrator rights)
+    is used if there is one; otherwise pymobiledevice3 opens its own userspace tunnel (`--userspace`, recent
+    versions, no administrator rights)
 Every run is appended to out/perf/measurements.csv under the working directory.
 """
 import argparse
@@ -19,6 +21,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import urllib.request
 
 
 def pmd3():
@@ -30,6 +33,15 @@ def pmd3():
     sys.exit("pymobiledevice3 not found: install it or set PMD3")
 
 
+def transport():
+    """`--tunnel` through a running tunneld, else pymobiledevice3's own userspace tunnel."""
+    try:
+        urllib.request.urlopen("http://127.0.0.1:49151/", timeout=2).read()
+        return ["--tunnel", ""]
+    except OSError:
+        return ["--userspace"]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("label")
@@ -38,7 +50,7 @@ def main():
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    cmd = [pmd3(), "developer", "dvt", "sysmon", "process", "monitor", "process", "--tunnel", "",
+    cmd = [pmd3(), "developer", "dvt", "sysmon", "process", "monitor", "process", *transport(),
            "-f", "name=backboardd", "--choose", "first", "-i", "1000",
            "-d", str((a.seconds + a.warmup) * 1000), "-k", "cpuUsage", "-k", "physFootprint"]
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env)

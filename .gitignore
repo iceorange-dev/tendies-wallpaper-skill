@@ -17,3 +17,6 @@ __pycache__/
 
 # personal ports of other creators' wallpapers (not distributed)
 /ports/
+
+# perf_probe's looping Chinatsu, recreated from git history when needed
+/chinatsu_loops.py

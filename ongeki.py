@@ -16,7 +16,7 @@ import re
 
 from PIL import Image
 
-ASSETS = os.environ.get("ONGEKI_EXPORT", r"D:\SDDT_1.50.00_20250310133951_0\exported"
+ASSETS = os.environ.get("ONGEKI_EXPORT", r"D:\SDDT_1.50.00_20250310133951_0\exported\_exports"
                         r"\AssetRipper_export_20260616_205625\ExportedProject\Assets")
 TEX = os.path.join(ASSETS, "Texture2D")
 SPRITE = os.path.join(ASSETS, "Sprite")
